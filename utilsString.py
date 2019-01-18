@@ -3,7 +3,9 @@
 
 import re, codecs, nltk
 from langdetect import detect
+from tqdm import tqdm
 import utilsDataStruct
+import utilsOs
 
 
 ##################################################################################
@@ -178,7 +180,6 @@ def isItGibberish(string, gibberishTreshold=0.49, exoticCharSensitive=False):
 
 def englishOrFrench(string):
 	'''guesses the language of a string between english and french'''
-	import utilsOs
 	from langdetect.lang_detect_exception import LangDetectException
 	#if the string is only made of numbers and non alphabetic characters we return 'unknown'
 	if re.fullmatch(re.compile(r'([0-9]|-|\+|\!|\#|\$|%|&|\'|\*|\?|\.|\^|_|`|\||~|:|@)+'), string) != None:
@@ -238,7 +239,7 @@ def ngrams(string, n=3):
 	separated by a space
 	'''
 	ngramList = []
-	tokens = naiveRegexTokenizer(string, caseSensitive=True, eliminateEnStopwords=False, language=u'english')
+	tokens = naiveRegexTokenizer(string, caseSensitive=True, eliminateStopwords=False, language=u'english')
 	#go through the list of tokens
 	for startIndex in range(len(tokens)-(n-1)):
 		#prepare the string n-gram to add to the ngramlist (depending on n) 
@@ -262,9 +263,10 @@ def removeStopwords(tokenList, language=u'english'):
 def words(string): return re.findall(r'\w+', string.lower().replace(u'\n', u' ')) #extracted from peter norvig spell post : https://norvig.com/spell-correct.html
 
 
-def naiveRegexTokenizer(string, caseSensitive=True, eliminateEnStopwords=False, language=u'english'):
+def naiveRegexTokenizer(string, caseSensitive=True, eliminateStopwords=False, language=u'english'):
 	'''
 	returns the token list using a very naive regex tokenizer
+	does not return the punctuation symbols nor the newline
 	'''
 	plainWords = re.compile(r'(\b\w+\b)', re.UNICODE)
 	tokens = re.findall(plainWords, string.replace(u'\r', u'').replace(u'\n', u' '))
@@ -272,12 +274,12 @@ def naiveRegexTokenizer(string, caseSensitive=True, eliminateEnStopwords=False, 
 	if caseSensitive != True:
 		tokens = [tok.lower() for tok in tokens]
 	#if we don't want the stopwords
-	if eliminateEnStopwords != False:
+	if eliminateStopwords != False:
 		tokens = removeStopwords(tokens, language=language)
 	return tokens
 
 
-def naiveStemmer(string, caseSensitive=True, eliminateEnStopwords=False, language=u'english'):
+def naiveStemmer(string, caseSensitive=True, eliminateStopwords=False, language=u'english'):
 	'''
 	returns the stemmed token list using nltk
 	where a stem is a word of a sentence converted to its non-changing portions
@@ -291,14 +293,14 @@ def naiveStemmer(string, caseSensitive=True, eliminateEnStopwords=False, languag
 	if caseSensitive != True:
 		tokens = [tok.lower() for tok in tokens]
 	#if we don't want the stopwords
-	if eliminateEnStopwords != False:
+	if eliminateStopwords != False:
 		tokens = removeStopwords(tokens, language=language)
 	#get stems
 	stems = [stemmer(language).stem(tok) for tok in tokens]
 	return tokens
 
 
-def naiveEnLemmatizer(string, caseSensitive=True, eliminateEnStopwords=False):
+def naiveEnLemmatizer(string, caseSensitive=True, eliminateStopwords=False):
 	'''
 	returns the lemmatized token list using nltk
 	where a lemma is a word of a sentence converted to its dictionnary standard form
@@ -313,14 +315,14 @@ def naiveEnLemmatizer(string, caseSensitive=True, eliminateEnStopwords=False):
 	if caseSensitive != True:
 		tokens = [tok.lower() for tok in tokens]
 	#if we don't want the stopwords
-	if eliminateEnStopwords != False:
+	if eliminateStopwords != False:
 		tokens = removeStopwords(tokens, language=u'english')
 	#get lemmas
 	lemmas = [lemmatizer.lemmatize(tok) for tok in tokens]
 	return tokens
 
 
-def tokenizeAndExtractSpecificPos(string, listOfPosToReturn, caseSensitive=True, eliminateEnStopwords=False):
+def tokenizeAndExtractSpecificPos(string, listOfPosToReturn, caseSensitive=True, eliminateStopwords=False):
 	'''
 	using nltk pos tagging, tokenize a string and extract the
 	tokens corresponding to the specified pos
@@ -356,7 +358,7 @@ def tokenizeAndExtractSpecificPos(string, listOfPosToReturn, caseSensitive=True,
 	if caseSensitive != True:
 		tokens = [tok.lower() for tok in tokens]
 	#if we don't want the stopwords
-	if eliminateEnStopwords != False:
+	if eliminateStopwords != False:
 		tokens = removeStopwords(tokens, language='english')
 	return tokens
 
@@ -382,14 +384,16 @@ def correction(word, lang=u'en', ressource=u'token'):
 	based on from peter norvig spell post : https://norvig.com/spell-correct.html
 	'''
 	if ressource == u'token':
-		wordCountDict = getBigDataTokenDict(ressource, lang)
+		wordCountDict = utilsOs.openJsonFileAsDict(u'./utilsString/tokDict/{0}Tok.json'.format(lang))
 		cadidatesList = candidates(word, wordCountDict)
+	'''
 	elif ressource == u'ngram':		
 		wordCountDict = getBigDataTokenDict(ressource, lang)
 		cadidatesList = candidatesNgram(word, wordCountDict)
 	elif ressource == u'hybrid':		
 		wordCountDict, ngramCountDict = getBigDataTokenDict(ressource, lang)
 		cadidatesList = candidates(word, wordCountDict)
+	'''
 	##################################NOPE modify correction and make 3 different correction functions one for each type, ngrams must propose all possibilities for x edits per token in the ngram
 	maxValWord = (word, 0)
 	#evaluate for all candidates wich is most probable
@@ -403,8 +407,8 @@ def correction(word, lang=u'en', ressource=u'token'):
 
 def candidates(word, wordCountDict): 
 	'''Generate possible spelling corrections for word.
-	extracted from peter norvig spell post : https://norvig.com/spell-correct.html'''
-	return (known([word], wordCountDict) or known(edits1(word), wordCountDict) or known(edits2(word), wordCountDict) or [word])
+	based on peter norvig spell post : https://norvig.com/spell-correct.html'''
+	return (known([word], wordCountDict) or known(edits1(word), wordCountDict) or known(edits2(word), wordCountDict) or known(edits3(word), wordCountDict) or [word])
 
 
 def known(words, wordCountDict): 
@@ -431,12 +435,24 @@ def edits2(word):
 	return (e2 for e1 in edits1(word) for e2 in edits1(e1))
 
 
+def edits3(word): 
+	'''All edits that are three edits away from `word`.
+	based on peter norvig spell post : https://norvig.com/spell-correct.html'''
+	return (e3 for e1 in edits1(word) for e3 in edits2(e1))
+
+
+def edits4(word): 
+	'''All edits that are three edits away from `word`.
+	based on peter norvig spell post : https://norvig.com/spell-correct.html'''
+	return (e4 for e2 in edits2(word) for e4 in edits2(e2))
+
+
 def naiveSpellChecker(string, lang=u'en'):
 	'''
 	for each token in the string, it returns the most closely 
 	related and most counted token in the bid data
 	'''
-	stringTokenList = naiveRegexTokenizer(string, caseSensitive=True, eliminateEnStopwords=False, language=u'english')
+	stringTokenList = naiveRegexTokenizer(string, caseSensitive=True, eliminateStopwords=False)
 	correctedStringTokenList = []
 	#correct each token and put it in a different list
 	for token in stringTokenList:
@@ -449,7 +465,7 @@ def naiveSpellChecker(string, lang=u'en'):
 def naiveNgramSpellChecker(string, n=3, lang=u'en'):
 	'''
 	for each ngram in the string, it returns the most closely 
-	related and most counted ngram in the bid data
+	related and most counted ngram in the big data
 	'''
 	stringTok3gramList = ngrams(string, n)
 	correctedStringNgramList = []
@@ -475,7 +491,7 @@ def tokenDictMaker(string):
 	return tokenDict
 
 
-def makeTokenCountDictFromText(inputPath, outputPath): ########################should work but not tested#######################
+def makeTokenCountDictFromText(inputPath, outputPath):
 	'''
 	given the path to a text file, tokenizes and 
 	counts the intances of each token and dumps the
@@ -490,8 +506,8 @@ def makeTokenCountDictFromText(inputPath, outputPath): ########################s
 		#read one line at a time
 		bigDataLine = bigDataFile.readline()
 		while bigDataLine:
-			lineTokCountDict = Counter( naiveRegexTokenizer(bigDataLine, caseSensitive=True, eliminateEnStopwords=False, language=u'english') )
-			utilsDataStruct.mergeDictsAddValues(tokenCountDict, lineTokCountDict)
+			lineTokCountDict = Counter( naiveRegexTokenizer(bigDataLine, caseSensitive=True, eliminateStopwords=False, language=u'english') )
+			tokenCountDict = utilsDataStruct.mergeDictsAddValues(tokenCountDict, lineTokCountDict)
 			#next line
 			bigDataLine = bigDataFile.readline()
 	#dumping
@@ -509,7 +525,6 @@ def tokenDictMakerFromFile(inputFilePath, outputFilePath=None):
 	and dumps the result in a json file
 	VERY SIMILAR TO makeTokenCountDictFromText() BUT MORE HANDS-ON AND SELF-BUILT
 	'''
-	import utilsOs
 	tokenDict = {}
 	stringList = utilsOs.readAllLinesFromFile(inputFilePath, True)
 	for string in stringList:
@@ -533,24 +548,44 @@ def makeTokNgramCountDictFromText(inputPath, outputPath, n):
 	'''
 	import json
 	from collections import Counter
+	#first dump an empty dict
+	utilsOs.dumpDictToJsonFile({}, outputPath, overwrite=True)
+	#dumping function
+	def overwriteAndDump(outputPath, tokNgramCountDict):
+		oldDict = utilsOs.openJsonFileAsDict(outputPath)
+		bothDicts = utilsDataStruct.mergeDictsAddValues(tokNgramCountDict, oldDict)
+		utilsOs.dumpDictToJsonFile(bothDicts, outputPath, overwrite=True)
+		#unnecessary ?
+		oldDict, bothDicts = {}, {}
+	#count the total of lines in the file
+	with codecs.open(inputPath, 'r', encoding='utf8') as bigDataFile:
+		totalLines = utilsOs.countLines(bigDataFile)
+		onePercentOfLines = int(float(totalLines)/100.0)
+		print(u'{0}/{1}'.format(0, totalLines))
 	#open text file as string
 	with codecs.open(inputPath, 'r', encoding='utf8') as bigDataFile:
 		tokNgramCountDict = {}
 		#read one line at a time
 		bigDataLine = bigDataFile.readline()
+		counter = 1
 		while bigDataLine:
-			lineTokCountDict = Counter( ngrams(bigDataLine) )
-			utilsDataStruct.mergeDictsAddValues(tokNgramCountDict, lineTokCountDict)
+			#for jsonData in tqdm(jsonFile, total=utilsOs.countLines(jsonFile))
+			lineTokCountDict = Counter( ngrams(bigDataLine, n) )
+			tokNgramCountDict = utilsDataStruct.mergeDictsAddValues(tokNgramCountDict, lineTokCountDict)
+			#chronical dump every 1%
+			if counter % onePercentOfLines == 0:
+				overwriteAndDump(outputPath, tokNgramCountDict)
+				tokNgramCountDict = {}
+				print(u'{0}/{1}'.format(counter, totalLines))
 			#next line
 			bigDataLine = bigDataFile.readline()
-	#dumping
-	with codecs.open(outputPath, u'wb', encoding=u'utf8') as dictFile:
-		dictFile.write('')
-		json.dump(tokNgramCountDict, dictFile)
+			counter += 1	
+	#final dumping
+	overwriteAndDump(outputPath, tokNgramCountDict)
 	return tokNgramCountDict
 
 
-def getBigDataDict(ressourceType=u'token' ,lang=u'en'):
+def getBigDataDict(ressourceType=u'token' ,lang=u'en'): ########################should work but not tested#######################
 	'''
 	given a language code, searchs for the corresponding 
 	a big data text file and returns a instance counter dict.
@@ -577,8 +612,8 @@ def getBigDataDict(ressourceType=u'token' ,lang=u'en'):
 		bigDataPath2 = u'./utilsString/{0}Tok3gram.json'.format(lang)
 		#return a collections.counter dict of the counted instances of the words
 		with codecs.open(bigDataPath1, u'r', encoding=u'utf8') as openedFile1:
-		with codecs.open(bigDataPath2, u'r', encoding=u'utf8') as openedFile2:
-			return json.load(openedFile1), json.load(openedFile2)
+			with codecs.open(bigDataPath2, u'r', encoding=u'utf8') as openedFile2:
+				return json.load(openedFile1), json.load(openedFile2)
 	#return a collections.counter dict of the counted instances of the words
 	with codecs.open(bigDataPath, u'r', encoding=u'utf8') as openedFile:
 		return json.load(openedFile)
@@ -613,7 +648,6 @@ def trigramDictMakerFromFile(inputFilePath, outputFilePath=None):
 	takes a corpus file, makes a dict of character 3grams with their count
 	and dumps the result in a json file
 	'''
-	import utilsOs
 	trigramDict = {}
 	stringList = utilsOs.readAllLinesFromFile(inputFilePath, True)
 	langString = u' '.join(stringList)
@@ -630,7 +664,6 @@ def quadrigramDictMakerFromFile(inputFilePath, outputFilePath=None):
 	takes a corpus file, makes a dict of character 4grams with their count
 	and dumps the result in a json file
 	'''
-	import utilsOs
 	quadrigramDict = {}
 	stringList = utilsOs.readAllLinesFromFile(inputFilePath, True)
 	langString = u' '.join(stringList)

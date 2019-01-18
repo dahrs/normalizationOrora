@@ -2,8 +2,10 @@
 #-*- coding:utf-8 -*-
 
 import utilsOs
+from utilsGraph import getDataFrameFromArgs
 from nltk.metrics import distance
 from tqdm import tqdm
+import pandas as pd
 
 
 ##################################################################################
@@ -15,7 +17,6 @@ def analyseNodeListStrDistance(nodeListPath, outputPath=None):
 	analyses the nodes in the node list and returns the stats 
 	concerning the similarities between node string labels
 	'''
-	from utilsGraph import getDataFrameFromArgs
 	import multiprocessing as mp
 
 	pool = mp.Pool(processes=4) 
@@ -134,6 +135,87 @@ def getElemSimilarByEditDistanceOfN(original, similarCandidatesList, nodeSimilar
 						#add the data to the dict
 						nodeSimilarsDict[nMax][dictKey].append(candidate)
 	return nodeSimilarsDict
+
+
+##################################################################################
+#DATAFRAMES
+##################################################################################
+
+def dataframesIntersection(tsvFile1Path, tsvFile2Path, listOfIntersectingColumnNames, outputFilePath=None, lowerCase=True):
+	'''
+	returns the exact intersection between 2 dataframes and some statistical data
+	in dict form: 
+		- size of intersection
+		- size of df1
+		- ratio of intersection according to df1
+		- size of df2
+		- ratio of intersection according to df2
+	'''
+	import pandas as pd
+	from utilsGraph import getDataFrameFromArgs
+	#get the dataframes
+	df1, df2 = getDataFrameFromArgs(tsvFile1Path, tsvFile2Path)
+	#get their size
+	sizeDf1 = len(df1)
+	sizeDf2 = len(df2)
+	#make sur the name of the column of columns to intersect are in a list
+	if listOfIntersectingColumnNames is str:
+		listOfIntersectingColumnNames = [listOfIntersectingColumnNames]
+	#lowercase the values in the intersectable columns before the intersection
+	for columnName in listOfIntersectingColumnNames:
+		#lowercase strings
+		try:
+			df1[columnName] = df1[columnName].str.lower()
+			df2[columnName] = df2[columnName].str.lower()
+		#if it's not a string, then no need to lowercase
+		except AttributeError:
+			pass
+	#drop the possible doubles we might have created after lowercasing
+	for columnName in listOfIntersectingColumnNames:
+		df1 = df1.drop_duplicates(subset=columnName)
+		df2 = df2.drop_duplicates(subset=columnName)
+	#make the intersection
+	intersectDf = pd.merge(df1, df2, how='inner', on=listOfIntersectingColumnNames)
+	#dump
+	if outputFilePath != None:
+		intersectDf.to_csv(outputFilePath, sep='\t', index=False)
+	return intersectDf, {u'intersection size': len(intersectDf), u'df1 size': sizeDf1, u'intersect-df1 ratio': float(len(intersectDf))/float(sizeDf1), u'df2 size': sizeDf2, u'intersect-df2 ration': float(len(intersectDf))/float(sizeDf2)}
+
+
+def diffBtw2Dataframes(df1, df2, caseSensitive=True):
+	'''
+	opens two dataframes and analyzes the difference and points in common
+	from the headers to the content
+	'''
+	# if df1 and df2 are paths, returns the dataframes
+	df1, df2 = getDataFrameFromArgs(df1, df2)
+	#classify according to which df is larger, we place the larger df in the df2 variable and the smaller in df1
+	df1, df2 = (df2, df1)if len(df1) > len(df2) else (df1, df2)
+	#if case sensitive is false, lowercase it all
+	if caseSensitive != True:
+		df1.columns = map(str.lower, df1.columns)
+		df1 = df1.apply(lambda x: x.astype(str).str.lower())
+		df2.columns = map(str.lower, df2.columns)
+		df2 = df2.apply(lambda x: x.astype(str).str.lower())
+	#print header column names in common
+	commonColumns = [c for c in list(df1) if c in list(df2)]
+	print(u'0 - header column names in common: {0}'.format(commonColumns))
+	#print header column names not in common
+	divergentColumns = [c for c in list(df1) if c not in list(df2)] + [c for c in list(df2) if c not in list(df1)]
+	print(u'1 - header column names NOT in common: {0}'.format(divergentColumns))
+	#identical rows in both dfs (for common columns)
+	commonDf = pd.merge(df1, df2, how='inner', on=commonColumns)
+	commonDf.dropna(inplace=True) #drop empty rows
+	print(u'2 - nb of rows with common values for both dataframes (in common columns): {0}/{1} (ratio: {2})'.format( len(commonDf), len(df2), (float(len(commonDf))/float(len(df2))) ))
+	#identical values in both dfs (column by column)
+	for indexColumn, columnName in enumerate(commonColumns):
+		#it's easier to intersect pandas.series rather than dataframes (to avoid index mishaps)
+		commonInterseption = list(map(lambda r: r in df1[columnName], df2[columnName]))
+		print(u'\t2.{0} - nb of rows with common values on the column "{1}" (for both dataframes) : {2}/{3} (ratio: {4})'.format( indexColumn, columnName, len(commonInterseption), len(df2), (float(len(commonInterseption))/float(len(df2))) ))
+	#divergent rows in both dfs (for common columns) #supposing there are 2 columns in common
+	###divergentDf2 = df2.loc[~df2[commonColumns[0]].isin(commonDf[commonColumns[0]]) & ~df2[commonColumns[1]].isin(commonDf[commonColumns[1]])]
+	###divergentDf2.to_csv(u'./divergent.tsv', sep='\t', index=False)
+	###commonDf.to_csv(u'./common.tsv', sep='\t', index=False)
 
 
 ##################################################################################

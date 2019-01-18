@@ -651,17 +651,15 @@ def ontologyContentCleaning(languageOfOntology, edgeFilePathInput, nodeFilePathI
 	for nodeIndex, nodeRow in nodeDf.iterrows():
 		label = nodeRow['Label']
 		#detecting if the label is in english or french
-		try:
-			if utilsString.englishOrFrench(label) == languageOfOntology:
-				#if the node is not over-specific
-				if len(utilsString.naiveRegexTokenizer(label, eliminateEnStopwords=True)) <= 5:
-					#if we detect no 2in1 jobTitles/skills
-					if utilsString.indicator2in1(label) == False:
-						#if we don't detect gibberish in a row
-						if utilsString.isItGibberish(label, gibberishTreshold=0.49, exoticCharSensitive=False) == False:
-							#add the node id to the list of correct nodes
-							theRightNodes.add(nodeRow['Id'])
-
+		if utilsString.englishOrFrench(label) == languageOfOntology:
+			#if the node is not over-specific
+			if len(utilsString.naiveRegexTokenizer(label, eliminateEnStopwords=True)) <= 5:
+				#if we detect no 2in1 jobTitles/skills
+				if utilsString.indicator2in1(label) == False:
+					#if we don't detect gibberish in a row
+					if utilsString.isItGibberish(label, gibberishTreshold=0.49, exoticCharSensitive=False) == False:
+						#add the node id to the list of correct nodes
+						theRightNodes.add(nodeRow['Id'])
 	#get the dataframes containing the right nodes
 	cleanedEdgeDf = edgeDf.loc[edgeDf[u'Source'].isin(theRightNodes) & edgeDf[u'Target'].isin(theRightNodes)]
 	cleanedNodeDf = nodeDf.loc[nodeDf[u'Id'].isin(theRightNodes)]
