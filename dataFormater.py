@@ -3,7 +3,7 @@
 
 
 import json, codecs, nltk
-import utilsOs, utilsGraph
+import utilsOs, utilsGraph, utilsString
 
 
 ##################################################################################
@@ -63,7 +63,6 @@ def joinMultTsvIntoOne(folderInputPath, outputFilePath=None, idColumnName=None, 
 ##################################################################################
 #LINKEDIN JOB DATA FORMATING
 ##################################################################################
-
 
 def getJobData(profile, dictJobTitlesData={}):
 	'''
@@ -351,8 +350,53 @@ def linkedInJobSkillEdgeAndNodeList(pathEdgeFileInput, pathEdgeFileOutput, pathN
 	utilsOs.deleteTheFile(u'./', u'temp', u'txt')
 
 
+##################################################################################
+#GOLD STANDARD
+##################################################################################
 
+def makeGoldStandardOrora(inputPath, outputPath, goldStandardPath):
+	'''
+	opens the input and output file and makes one input with corresponding output file
+	'''
+	#INCLUDING the information block columns
+	###headerLine = u'Id\tCommentIn\tCommentOut\tInformation blocks\tCoded information block\tBlock type'
+	#EXCLUSING the information block columns
+	headerLine = u'Id\tCommentIn\tCommentOut'
+	#create empty gold standard file
+	gsFile = utilsOs.createEmptyFile(goldStandardPath, headerLine)
+	#browse the output file line by line
+	with open(outputPath, u'r', encoding=u'utf8') as outFile:
+		#header line
+		headerList = (outFile.readline().replace(u'\n', u'')).split(u'\t')
+		idCodeColName, commentColName = headerList[1], headerList[2]
+		#dataframe
+		inputDf = utilsGraph.getDataFrameFromArgs(inputPath)
+		line = outFile.readline()
+		#populate edge list
+		while line:
+			#get data
+			lineList = (line.replace(u'\n', u'')).split(u'\t')
+			#we replace any tabulation in the comments with ' ___ ' so there are no inconsistencies with the tsv (tab based)
+			idCode, commentOutLabel, theRest = lineList[1], lineList[2].replace(u'\t', u' ___ '), lineList[3:]
+			#select
+			selectInputDf = inputDf.loc[ inputDf[u'Id'] == int(idCode) ]
+			#get the input comment
+			commentInLabel = ( selectInputDf.loc[ selectInputDf[idCodeColName] == int(idCode) ] )[u'Comment'].tolist()
+			if len(commentInLabel) == 1:
+				commentInLabel = commentInLabel[0].replace(u'\t', u' ___ ')
+			else:
+				print('there are multiple rows with the same ID code', idCode, commentInLabel)
+			#write the line INCLUDING the information block columns
+			###gsFile.write( u'{0}\t{1}\t{2}\t{3}\n'.format(idCode, commentInLabel, commentOutLabel, u'\t'.join(theRest)) )
+			#write the line EXCLUDING the information block columns
+			gsFile.write( u'{0}\t{1}\t{2}\n'.format(idCode, commentInLabel, commentOutLabel) )
+			#next line
+			line = outFile.readline()
+	#close the file
+	gsFile.close()
+	#remove the row doubles
+	gsDf = utilsGraph.getDataFrameFromArgs(goldStandardPath)
+	gsDf = gsDf.drop_duplicates()
+	gsDf.to_csv(goldStandardPath, sep='\t', index=False)
+	return gsDf
 
-
-###joinMultTsvIntoOne(u'./002Data/client1input/tsvFilesBeforeUnification/', outputFilePath=u'./002Data/client1input/inputClient1Unified.tsv', idColumnName=u'Id', orderOfTheColumnsList=[u'Index', u'Id', u'Comment'])
-###joinMultTsvIntoOne(u'./002Data/client1output/tsvFilesBeforeUnification/', outputFilePath=u'./002Data/client1output/outputClient1Unified.tsv', idColumnName=u'Id', orderOfTheColumnsList=[u'Index', u'Id', u'Comment', u'Information blocks', u'Coded information block', u'Block type'])

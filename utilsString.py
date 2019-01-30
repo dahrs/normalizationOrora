@@ -1,9 +1,13 @@
 #!/usr/bin/python
 #-*- coding:utf-8 -*-
 
-import re, codecs, nltk
+import re, codecs, nltk, itertools
 from langdetect import detect
+from nltk.metrics import distance
 from tqdm import tqdm
+from functools import partial
+import numpy as np
+import multiprocessing as mp
 import utilsDataStruct
 import utilsOs
 
@@ -109,6 +113,15 @@ def findAcronyms(string):
 	if len(re.findall(plainTokens, string)) != len(re.findall(upperTokens, string)) and len(re.findall(plainTokens, string)) >= 2:
 		return re.findall(acronyms, string)
 	return None
+
+
+def makeAbbreviations(token):
+	''' given a string token, it makes a list of non-acronymic abbreviations of the following kinds:
+	credit -> cr		science -> sci		dept -> dept
+	monsieur -> mr		madame -> mme		mademoiselle -> mlle		mistress -> miss'''
+	abbrList = [token[:n] for n in range(1,5)]
+	abbrList += [ u'{0}{1}'.format(token[0], token[-1]), u'{0}{1}'.format(token[0], token[-2:]), u'{0}{1}'.format(token[0], token[-3:]), u'{0}{1}'.format(token[:2], token[-2:]) ]
+	return abbrList
 
 
 def indicator2in1(string):
@@ -370,46 +383,71 @@ def tokenizeAndExtractSpecificPos(string, listOfPosToReturn, caseSensitive=True,
 def wordProbability(word, wordCountDict, N=None): 
 	'''Probability of `word`.
 	based on peter norvig spell post : https://norvig.com/spell-correct.html'''
+	#if the word is not in the dict
+	if word not in wordCountDict:
+		return 0
+	#if the word is present in the dict
 	if N == None:
 		N = sum(wordCountDict.values())
 	return wordCountDict[word] / N
 
 
-def correction(word, lang=u'en', ressource=u'token'): 
+def correction(word, lang=u'en', returnProbabilityScore=False, wordCountDict=None): 
 	'''Most probable spelling correction for word.
 	The ressource arument must have the values:
-		- 'token' : based on statistical token frequency
-		- 'ngram' : based on statistical ngram frequency
-		- 'hybrid' : using ngram frequency and if it doesn't find it, uses token frequency
+	based on statistical token frequency
 	based on from peter norvig spell post : https://norvig.com/spell-correct.html
 	'''
-	if ressource == u'token':
+	if wordCountDict != None:
 		wordCountDict = utilsOs.openJsonFileAsDict(u'./utilsString/tokDict/{0}Tok.json'.format(lang))
-		cadidatesList = candidates(word, wordCountDict)
-	'''
-	elif ressource == u'ngram':		
-		wordCountDict = getBigDataTokenDict(ressource, lang)
-		cadidatesList = candidatesNgram(word, wordCountDict)
-	elif ressource == u'hybrid':		
-		wordCountDict, ngramCountDict = getBigDataTokenDict(ressource, lang)
-		cadidatesList = candidates(word, wordCountDict)
-	'''
-	##################################NOPE modify correction and make 3 different correction functions one for each type, ngrams must propose all possibilities for x edits per token in the ngram
+	cadidatesList = candidates(word, wordCountDict)
 	maxValWord = (word, 0)
 	#evaluate for all candidates wich is most probable
 	for candidate in cadidatesList:
 		val = wordProbability(candidate, wordCountDict)
 		if val > maxValWord[1]:
 			maxValWord = (candidate, val)
+	#if both the candidate and score are needed
+	if returnProbabilityScore != False:
+		#return most probable word and its score
+		return maxValWord
+	#if only the candidate is needed
+	else: 
+		#return most probable
+		return maxValWord[0]
+
+
+def correctionNgram(ngram, lang=u'en', ngramCountDict=None): 
+	'''Most probable spelling correction for ngram.
+	based on statistical ngram frequency
+		- 'hybrid' : using ngram frequency and if it doesn't find it, uses token frequency
+	based on from peter norvig spell post : https://norvig.com/spell-correct.html
+	'''
+	if ngramCountDict != None:
+		ngramCountDict = utilsOs.openJsonFileAsDict(u'./utilsString/tokDict/{0}Tok.json'.format(lang))
+	cadidatesList = candidatesNgram(ngram, ngramCountDict)
+	maxValNgram = (ngram, 0)
+	#evaluate for all candidates wich is most probable
+	for candidate in cadidatesList:
+		val = wordProbability(candidate, ngramCountDict)
+		if val > maxValNgram[1]:
+			maxValNgram = (candidate, val)
 	#return most probable
-	return maxValWord[0]
+	return maxValNgram
 
 
 def candidates(word, wordCountDict): 
 	'''Generate possible spelling corrections for word.
 	based on peter norvig spell post : https://norvig.com/spell-correct.html'''
-	return (known([word], wordCountDict) or known(edits1(word), wordCountDict) or known(edits2(word), wordCountDict) or known(edits3(word), wordCountDict) or [word])
+	return (known([word], wordCountDict) or known(edits1(word), wordCountDict) or known(edits2(word), wordCountDict) or [word])
 
+
+def candidatesNgram(ngram, ngramCountDict): 
+	'''Generate possible spelling corrections for word.
+	based on peter norvig spell post : https://norvig.com/spell-correct.html'''
+	return (known([ngram], ngramCountDict) 
+		or known(editsTrigram(ngram), ngramCountDict)
+		or [ngram])
 
 def known(words, wordCountDict): 
 	'''The subset of `words` that appear in the dictionary of wordCountDict.
@@ -417,15 +455,19 @@ def known(words, wordCountDict):
 	return set(w for w in words if w in wordCountDict)
 
 
-def edits1(word):
+def edits1(word, lang=u'fr'):
 	'''All edits that are one edit away from `word`.
 	extracted from peter norvig spell post : https://norvig.com/spell-correct.html'''
-	letters	= u'abcdefghijklmnopqrstuvwxyzàâçéèêïîôùüû'
-	splits	 = [(word[:i], word[i:])		for i in range(len(word) + 1)]
-	deletes	= [L + R[1:]					for L, R in splits if R]
+	letters	= u'abcdefghijklmnopqrstuvwxyz'
+	if lang == u'fr': letters += u'àâçéèêïîôùüû'
+	#prepare for multithreading	
+	pool = mp.Pool() 
+	#make all possible 1-distance changes
+	splits = [(word[:i], word[i:])		for i in range(len(word) + 1)]
+	deletes = [L + R[1:]					for L, R in splits if R]
 	transposes = [L + R[1] + R[0] + R[2:]	for L, R in splits if len(R)>1]
-	replaces   = [L + c + R[1:]				for L, R in splits if R for c in letters]
-	inserts	= [L + c + R					for L, R in splits for c in letters]
+	replaces = [L + c + R[1:]				for L, R in splits if R for c in letters]
+	inserts = [L + c + R					for L, R in splits for c in letters]
 	return set(deletes + transposes + replaces + inserts)
 
 
@@ -447,19 +489,45 @@ def edits4(word):
 	return (e4 for e2 in edits2(word) for e4 in edits2(e2))
 
 
-def naiveSpellChecker(string, lang=u'en'):
+def getAllEditsOfToken(token):
+	''' Generate all spelling variations for token '''
+	return edits1(token).union(edits2(token)).union(set([token]))
+
+
+def editsTrigram(ngram):
+	''' given an ngram, tokenizes, applies the edits to each token,
+	then returns the ngram '''
+	pool = mp.Pool(processes=4) 
+	ngramTokens = naiveRegexTokenizer(ngram)
+	token1Edits = pool.apply_async(getAllEditsOfToken, [ngramTokens[0]] )
+	#token1Edits = getAllEditsOfToken(ngramTokens[0])
+	token2Edits = pool.apply_async(getAllEditsOfToken, [ngramTokens[1]] )
+	#token2Edits = getAllEditsOfToken(ngramTokens[1])
+	token3Edits = pool.apply_async(getAllEditsOfToken, [ngramTokens[2]] )
+	#token3Edits = getAllEditsOfToken(ngramTokens[2])
+	setProducts = itertools.product(token1Edits.get(), token2Edits.get(), token3Edits.get())
+	return { u' '.join(editSet) for editSet in setProducts }
+
+
+def naiveSpellChecker(string, lang=u'en', wordCountDict=None, returnCorrectedTokenScore=False):
 	'''
 	for each token in the string, it returns the most closely 
 	related and most counted token in the bid data
 	'''
+	pool = mp.Pool() 
+	#get the tokens from the string
 	stringTokenList = naiveRegexTokenizer(string, caseSensitive=True, eliminateStopwords=False)
 	correctedStringTokenList = []
-	#correct each token and put it in a different list
-	for token in stringTokenList:
-		correctedStringTokenList.append(correction(token, lang))
+	#put in a variable the function correction with a constant argument lang
+	correctionWithConstantLangVar = partial(correction, lang=lang, returnProbabilityScore=False, wordCountDict=wordCountDict)
+	#correct each token and put it in a different list using multiprocessing to go faster
+	correctedStringTokenList = pool.map(correctionWithConstantLangVar, stringTokenList)
 	#give a normalized score representing how many tokens in the whole string needed some level of correction
-	correctedTokenScore = float(len([ tok for tok in correctedStringTokenList if tok not in stringTokenList ])) / float(len(stringTokenList))
-	return u' '.join(correctedStringTokenList), correctedTokenScore
+	if returnCorrectedTokenScore != False:
+		correctedTokenScore = float(len([ tok for tok in correctedStringTokenList if tok not in stringTokenList ])) / float(len(stringTokenList))
+		return u' '.join(correctedStringTokenList), correctedTokenScore
+	#otherwise
+	return u' '.join(correctedStringTokenList)
 
 
 def naiveNgramSpellChecker(string, n=3, lang=u'en'):
@@ -471,9 +539,9 @@ def naiveNgramSpellChecker(string, n=3, lang=u'en'):
 	correctedStringNgramList = []
 	#correct each ngram and put it in a different list
 	for ngram in stringTok3gramList:
-		correctedStringNgramList.append(correction(ngram, lang))
+		correctedStringNgramList.append(correctionNgram(ngram, lang)[0])
 	#give a normalized score representing how many ngrams in the whole string needed some level of correction
-	correctedNgramScore = float(len([ ngra for ngra in correctedStringNgramList if ngra not in stringTok3gramList ])) / float(len(stringTok3gramList))
+	correctedNgramScore = float(len([ ngrm for ngrm in correctedStringNgramList if ngrm not in stringTok3gramList ])) / float(len(stringTok3gramList))
 	return u' '.join(correctedStringNgramList), correctedNgramScore
 
 
@@ -619,6 +687,58 @@ def getBigDataDict(ressourceType=u'token' ,lang=u'en'): ########################
 		return json.load(openedFile)
 
 
+def removeLessFrequentFromBigDataDict(inputFilePath, outputFilePath=None, minValue=1):
+	''' makes a new dict but removing the hapax legomenon and less frequent tokens '''
+	bigDataDict = utilsOs.openJsonFileAsDict(inputFilePath)
+	print('BEFORE removing the less frequent tokens: ', len(bigDataDict))
+	#delete the keys with values under the min value limit
+	for key, value in list(bigDataDict.items()):
+		if value <= minValue:
+			del bigDataDict[key]
+	#dumping
+	if outputFilePath != None:
+		utilsOs.dumpDictToJsonFile(bigDataDict, outputFilePath, overwrite=True)
+	print('AFTER removing the less frequent tokens: ', len(bigDataDict))
+	return bigDataDict
+
+
+def makeBigDataDictOfArtificialErrorsAndAbbreviations(inputFilePath, outputFilePath=None, errorsEditDist=1, abbreviations=True):
+	''' Makes a new dict containing tokens with artificially induced errors with a specified
+	edit distance (must not be greater than 4) and each token's possible abreviations.
+	The original token will not appear in the error and abbreviation dict.'''
+	errorAndAbbrDict = {}
+	emptyList = []
+	dataDict = utilsOs.openJsonFileAsDict(inputFilePath)
+	def attributeEdits(token, errorsEditDist):
+		if errorsEditDist == 1:
+			return edits1(token)
+		elif errorsEditDist == 0 and errorsEditDist != None:
+			return [token]
+		elif errorsEditDist == 2:
+			return edits2(token)
+		elif errorsEditDist == 3:
+			return edits3(token)
+		else: return edits4(token)
+	#browse the original dict
+	for index, (token, value) in enumerate(dataDict.items()):
+		if index%5000 == 0:
+			print(index, len(dataDict))
+		#get artificial errors of specified distance
+		errorsList = list(attributeEdits(token, errorsEditDist)) 
+		#get artificial abbreviations
+		if abbreviations == True:
+			abbrList = makeAbbreviations(token)
+		else: abbrList = []
+		#browse the error and abbr list
+		for artificialToken in set(errorsList+abbrList):
+			errorAndAbbrDict[artificialToken] = errorAndAbbrDict.get(artificialToken, list(emptyList)) + [ (token, value) ]
+	#dumping
+	if outputFilePath != None:
+		utilsOs.dumpDictToJsonFile(errorAndAbbrDict, outputFilePath, overwrite=True)
+	return errorAndAbbrDict
+
+
+
 ##################################################################################
 #SPECIAL DICTS - CHARACTERS
 ##################################################################################
@@ -693,3 +813,93 @@ def langDictComparison(dictUnk, dictLang):
 		#distance calculation
 		distance+=abs((dictUnk[key]/maxUnk) - dictLang.get(key,0))
 	return distance
+
+
+def getcorrespondingTokensAndEditDist(string1, string2, caseSensitive=False):
+	''' given 2 similar strings, it detects for each token in string1
+	the corresponding token in string 2. It returns a tuple of each
+	correspondence and its edit distance '''
+	errorCorrespList = []
+	#replace repetition of space characters with the an distinctive symbol
+	for nbSpace in reversed(range(3, 10)):
+		if u' '*nbSpace in string1:
+			string1 = string1.replace(u' '*nbSpace, u' {0} '.format(u'¤*¤¤¤¤'*nbSpace))
+		if u' '*nbSpace in string2:
+			string1 = string2.replace(u' '*nbSpace, u' {0} '.format(u'¤*¤¤¤¤'*nbSpace))
+	#tokenize (we don't use the naive regex tokenizer to avoid catching the  "-" and "'" and so on)
+	string1Tok = string1.split(u' ')
+	string2Tok = string2.split(u' ')
+	#replace back the distinctive characters replacing the spaces with actual spaces
+	string1Tok = [elem.replace(u'¤*¤¤¤¤', u' ') for elem in string1Tok]
+	string2Tok = [elem.replace(u'¤*¤¤¤¤', u' ') for elem in string2Tok]
+	#indicator of which one has greater length
+	longer = 1 if len(string1Tok) >= len(string2Tok) else 2
+	#order the objects
+	main = list(string1Tok if longer==1 else string2Tok)
+	sub = list(string1Tok if longer==2 else string2Tok)
+	#first get rid of the exact matches
+	mainTemp = list(main)
+	main = [mainElem for mainElem in main if mainElem not in sub]
+	sub = [subElem for subElem in sub if subElem not in mainTemp]
+	#initiate the multiple tokens verificator
+	joined = False
+	#detect the corresponding element to each token
+	for indexMain, mainElem in enumerate(main):
+		#if the previous element was a 
+		if joined == u'main':
+			joined = False
+		else:
+			leftInd = (indexMain-3) if (indexMain-3) >= 0 else 0
+			rightInd = (indexMain+3) if (indexMain+3) < len(sub) else len(sub)
+			#list the context window edit distance
+			bestCandidate = (u'na', float(u'inf'))
+			#join the main token with its main neighbour, in case in one case the tokens are separated in one set and joined in the other
+			mainElemAndRightElem = u'{0} {1}'.format(mainElem, main[indexMain+1]) if indexMain+1 < len(main) else None
+			#get the edit distance
+			for indexSub, subElem in enumerate(sub):
+				#get the edit distance for elements in the context window
+				if indexSub in range(leftInd, rightInd):
+					#get the edit distance for potential tokens separated in THE MAIN set and joined in THE SUB set
+					if mainElemAndRightElem != None:
+						editDist = distance.edit_distance(mainElemAndRightElem, subElem)
+						#compare edit dist
+						if editDist <= bestCandidate[1]:
+							bestCandidate = (subElem, editDist, indexSub, mainElemAndRightElem)
+							joined = u'main'
+					#get the edit distance for potential tokens separated in THE SUB set and joined in THE MAIN set
+					if indexSub+1 < len(sub) and indexSub+1 < rightInd:
+						subElemAndRightElem = u'{0} {1}'.format(subElem, sub[indexSub+1])
+						editDist = distance.edit_distance(mainElem, subElemAndRightElem)
+						#compare edit dist
+						if editDist <= bestCandidate[1]:
+							bestCandidate = (subElemAndRightElem, editDist, indexSub)
+							joined = u'sub'
+					#get the edit distance for each individual token coupled with a token present in the context window
+					editDist = distance.edit_distance(mainElem, subElem)
+					#get the best candidate using the edit distance between the main and sub elem
+					if editDist <= bestCandidate[1]:
+						bestCandidate = (subElem, editDist, indexSub)
+						joined = False
+			#save the corresponding error candidate
+			#if the best candidate is 2 main tokens
+			if joined == u'main':
+				errorCorrespList.append(tuple([bestCandidate[3], bestCandidate[0], bestCandidate[1]]))
+			#if the best candidate is 1 token or 2 sub tokens
+			else:
+				errorCorrespList.append(tuple([mainElem, bestCandidate[0], bestCandidate[1]]))
+			#pop the recently added element from sub
+			if bestCandidate[1] != float(u'inf'):
+				#delete 2 elements if the best candidate is 2 sub tokens
+				if joined == u'sub':
+					sub.pop(bestCandidate[2]+1)
+				#delete the best candidate element from the sub set
+				sub.pop(bestCandidate[2])
+	#if there are still elements in the sub list
+	for subElem in sub:
+		errorCorrespList.append(tuple([u'na', subElem, float(u'inf')]))
+	#return the list if the argument order is the same as the length order
+	if longer == 1:
+		return errorCorrespList
+	#if not, we invert the order
+	return [tuple([errorTuple[1], errorTuple[0], errorTuple[2]]) for errorTuple in errorCorrespList]
+

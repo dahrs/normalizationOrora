@@ -69,7 +69,7 @@ def createEmptyFile(filePath, headerLine=None):
 	openFile = codecs.open(filePath, u'w', encoding=u'utf8')
 	openFile.write(u'')
 	openFile.close()
-	openFile = codecs.open(filePath, 'a', encoding='utf8')
+	openFile = open(filePath, 'a', encoding='utf8', buffering=1)
 	#if needed we add a header
 	if headerLine != None:
 		openFile.write(u'{0}\n'.format(headerLine))

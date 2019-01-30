@@ -1,7 +1,7 @@
 #!/usr/bin/python
 #-*- coding:utf-8 -*-  
 
-import utilsString, utilsDataStruct, utilsNormalization
+import utilsString, utilsDataStruct, utilsNormalization, utilsOs, dataFormater
 
 
 ##################################################################################
@@ -23,6 +23,19 @@ outputPath = u'/data/rali5/Tmp/alfonsda/wikiDump/outputWikidump/tokDict/enTok3gr
 utilsString.makeTokNgramCountDictFromText(inputPath, outputPath, n=3) 
 '''
 
+
+##################################################################################
+#MAKE RESSOURCES
+##################################################################################
+
+frTokenDict = u'./utilsString/tokDict/frTok.json'
+frTokenDictReducedLess25 = './utilsString/tokDict/frTokReducedLessThan25Instances.json'
+frTokenDictReducedLess100 = './utilsString/tokDict/frTokReducedLessThan100Instances.json'
+frTokenDictReducedLess1000 = './utilsString/tokDict/frTokReducedLessThan1000Instances.json'
+
+utilsString.removeLessFrequentFromBigDataDict(frTokenDict, frTokenDictReducedLess100, minValue=1000)
+
+
 ##################################################################################
 #MAKE GOLD STANDARD
 ##################################################################################
@@ -31,7 +44,7 @@ inputPath = u'./002Data/client1input/inputClient1Unified.tsv'
 outputPath = u'./002Data/client1output/outputClient1Unified.tsv'
 goldStandardPath = u'./003goldStandard/inputOutputGs.tsv'
 
-###utilsNormalization.makeGoldStandardOrora(inputPath, outputPath, goldStandardPath)
+###dataFormater.makeGoldStandardOrora(inputPath, outputPath, goldStandardPath)
 
 
 ##################################################################################
@@ -40,14 +53,15 @@ goldStandardPath = u'./003goldStandard/inputOutputGs.tsv'
 
 baselinePath = u'./004outputResult/000baseline.tsv'
 
-###utilsNormalization.makeBaseline(goldStandardPath, baselinePath)
-
+#utilsNormalization.applyNormalisationGetResult(goldStandardPath, baselinePath)
 
 
 ##################################################################################
-#APPLY SATITSTICAL NAIVE SPELL CHECKER 
+#APPLY STATISTICAL AND NAIVE TOKEN SPELL CHECKER 
 ##################################################################################
 
 naiveSpellCheckPath = u'./004outputResult/000statSpellCheck.tsv'
 
-utilsNormalization.makeNaiveSpellCorrection(goldStandardPath, naiveSpellCheckPath)
+wordCountDict = utilsOs.openJsonFileAsDict(u'./utilsString/tokDict/frTok.json')
+
+#utilsNormalization.applyNormalisationGetResult(goldStandardPath, naiveSpellCheckPath, utilsString.naiveSpellChecker, u'fr', wordCountDict, False)
