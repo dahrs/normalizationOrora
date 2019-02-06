@@ -6,6 +6,7 @@ from langdetect import detect
 from nltk.metrics import distance
 from tqdm import tqdm
 from functools import partial
+from contextlib import closing
 import numpy as np
 import multiprocessing as mp
 import utilsDataStruct
@@ -59,7 +60,7 @@ def unicodeCodeScore(string, countSpaces=False, unicodeBlocksList=[(0, 128)]):
 			'touche' = 1.0 
 			'touché' = 0.833333			
 			'ключ' = 0.0
-		for an ascii frontier (U+0-U+128) + the french loan-character 'é' (U+00E9) == unicodeBlocksList=[(0, 128), [201] :
+		for an ascii frontier (U+0-U+128) + the french loan-character 'é' (U+00E9) == unicodeBlocksList=[(0, 128), [233] :
 			'touche' = 1.0 
 			'touché' = 1.0			
 			'ключ' = 0.0
@@ -67,6 +68,7 @@ def unicodeCodeScore(string, countSpaces=False, unicodeBlocksList=[(0, 128)]):
 			'touche' = 0.0 
 			'touché' = 0.0
 			'ключ' = 1.0
+	https://en.wikipedia.org/wiki/List_of_Unicode_characters
 	'''
 	totalOfAcceptedChars = 0
 	acceptedUnicodeCodes = set()
@@ -115,12 +117,26 @@ def findAcronyms(string):
 	return None
 
 
-def makeAbbreviations(token):
+def makeAbbreviations(token, unusualOnly=False):
 	''' given a string token, it makes a list of non-acronymic abbreviations of the following kinds:
 	credit -> cr		science -> sci		dept -> dept
 	monsieur -> mr		madame -> mme		mademoiselle -> mlle		mistress -> miss'''
-	abbrList = [token[:n] for n in range(1,5)]
-	abbrList += [ u'{0}{1}'.format(token[0], token[-1]), u'{0}{1}'.format(token[0], token[-2:]), u'{0}{1}'.format(token[0], token[-3:]), u'{0}{1}'.format(token[:2], token[-2:]) ]
+	if unusualOnly != False:
+		if len(token) == 5:
+			abbrList = [token[:3]]
+		elif len(token) > 6:
+			abbrList = [token[:n] for n in range(3, int(len(token)/2.0)+2)]
+		else:
+			abbrList = []
+	else:
+		if len(token) == 5:
+			abbrList = [token[:n] for n in range(1,4)]
+			abbrList += [ u'{0}{1}'.format(token[0], token[-1]), u'{0}{1}'.format(token[0], token[-2:])]
+		elif len(token) > 4 and len(token) > 6:
+			abbrList = [token[:n] for n in range(1,5)]
+			abbrList += [ u'{0}{1}'.format(token[0], token[-1]), u'{0}{1}'.format(token[0], token[-2:]), u'{0}{1}'.format(token[0], token[-3:]), u'{0}{1}'.format(token[:2], token[-2:]) ]
+		else:
+			abbrList = [token.replace(u'a', u'').replace(u'e', u'').replace(u'i', u'').replace(u'o', u'').replace(u'u', u'')]
 	return abbrList
 
 
@@ -276,12 +292,40 @@ def removeStopwords(tokenList, language=u'english'):
 def words(string): return re.findall(r'\w+', string.lower().replace(u'\n', u' ')) #extracted from peter norvig spell post : https://norvig.com/spell-correct.html
 
 
-def naiveRegexTokenizer(string, caseSensitive=True, eliminateStopwords=False, language=u'english'):
+def getTokenRegex(capturePunctuation=False, captureSymbols=False, language='english'):
+	''''''
+	prefix, suffix, punctuation, symbols = r"", r"", r"", r""
+	#gets some possible punctuation
+	if capturePunctuation == True:
+		punctuation = r'[。\.\?\!\:\;¡¿\(\)\[\]\{\}]+|'
+	#put all the given puntuation characters in a list, then in a regex string
+	elif capturePunctuation != False:
+		punctList = [punct for punct in capturePunctuation]
+		punctuation = r'[{0}]+|'.format( r''.join(punctList) ) if len(punctList) > 0 else r''
+	#adds the apostrophe at the start of the word in english and at the end of the word in other languages
+	if captureSymbols == True or u"'" in captureSymbols:
+		prefix, suffix = (r"(\b|')", r"\b") if language == 'english' else (r"\b", r"('|\b)")
+	#list the symbols
+	if captureSymbols == True:
+		symbols = r'|-|\+|\#|\$|%|&|\'|\*|\^|_|`|\||~|:|@|<|>'
+	elif captureSymbols != False:
+		#put all the symbols in a list then transform it into a string
+		symbList = [symb for symb in captureSymbols if symb != u"'"]
+		symbols = r'{0}'.format( r''.join(symbList) ) if len(symbList) > 0 else r''
+	return r"({0}{1}[\w{2}]+{3})".format(prefix, punctuation, symbols, suffix) 
+
+
+def naiveRegexTokenizer(string, caseSensitive=True, eliminateStopwords=False, language=u'english', capturePunctuation=False, captureSymbols=False):
 	'''
 	returns the token list using a very naive regex tokenizer
 	does not return the punctuation symbols nor the newline
+	if captureSymbols is a string or a list of strings then those strings will also be captured 
+	(ie, captureSymbols="'" , then r"(\b\w+(\b   |'   ))")
 	'''
-	plainWords = re.compile(r'(\b\w+\b)', re.UNICODE)
+	#make the regex
+	regex = getTokenRegex(capturePunctuation, captureSymbols, language)
+	#make list of tokens
+	plainWords = re.compile(regex, re.UNICODE)
 	tokens = re.findall(plainWords, string.replace(u'\r', u'').replace(u'\n', u' '))
 	#if we don't want to be case sensitive
 	if caseSensitive != True:
@@ -394,12 +438,11 @@ def wordProbability(word, wordCountDict, N=None):
 
 def correction(word, lang=u'en', returnProbabilityScore=False, wordCountDict=None): 
 	'''Most probable spelling correction for word.
-	The ressource arument must have the values:
-	based on statistical token frequency
-	based on from peter norvig spell post : https://norvig.com/spell-correct.html
+	based on statistical token frequency from peter norvig spell post : 
+	https://norvig.com/spell-correct.html
 	'''
 	if wordCountDict != None:
-		wordCountDict = utilsOs.openJsonFileAsDict(u'./utilsString/tokDict/{0}Tok.json'.format(lang))
+		wordCountDict = utilsOs.openJsonFileAsDict(u'./utilsString/tokDict/{0}TokReducedLessThan100Instances.json'.format(lang))
 	cadidatesList = candidates(word, wordCountDict)
 	maxValWord = (word, 0)
 	#evaluate for all candidates wich is most probable
@@ -460,8 +503,6 @@ def edits1(word, lang=u'fr'):
 	extracted from peter norvig spell post : https://norvig.com/spell-correct.html'''
 	letters	= u'abcdefghijklmnopqrstuvwxyz'
 	if lang == u'fr': letters += u'àâçéèêïîôùüû'
-	#prepare for multithreading	
-	pool = mp.Pool() 
 	#make all possible 1-distance changes
 	splits = [(word[:i], word[i:])		for i in range(len(word) + 1)]
 	deletes = [L + R[1:]					for L, R in splits if R]
@@ -497,37 +538,160 @@ def getAllEditsOfToken(token):
 def editsTrigram(ngram):
 	''' given an ngram, tokenizes, applies the edits to each token,
 	then returns the ngram '''
-	pool = mp.Pool(processes=4) 
-	ngramTokens = naiveRegexTokenizer(ngram)
-	token1Edits = pool.apply_async(getAllEditsOfToken, [ngramTokens[0]] )
-	#token1Edits = getAllEditsOfToken(ngramTokens[0])
-	token2Edits = pool.apply_async(getAllEditsOfToken, [ngramTokens[1]] )
-	#token2Edits = getAllEditsOfToken(ngramTokens[1])
-	token3Edits = pool.apply_async(getAllEditsOfToken, [ngramTokens[2]] )
-	#token3Edits = getAllEditsOfToken(ngramTokens[2])
-	setProducts = itertools.product(token1Edits.get(), token2Edits.get(), token3Edits.get())
+	with closing( mp.Pool(processes=4) ) as pool:
+		ngramTokens = naiveRegexTokenizer(ngram)
+		token1Edits = pool.apply_async(getAllEditsOfToken, [ngramTokens[0]] )
+		#token1Edits = getAllEditsOfToken(ngramTokens[0])
+		token2Edits = pool.apply_async(getAllEditsOfToken, [ngramTokens[1]] )
+		#token2Edits = getAllEditsOfToken(ngramTokens[1])
+		token3Edits = pool.apply_async(getAllEditsOfToken, [ngramTokens[2]] )
+		#token3Edits = getAllEditsOfToken(ngramTokens[2])
+		setProducts = itertools.product(token1Edits.get(), token2Edits.get(), token3Edits.get())
 	return { u' '.join(editSet) for editSet in setProducts }
 
 
-def naiveSpellChecker(string, lang=u'en', wordCountDict=None, returnCorrectedTokenScore=False):
+def getElemsNotInIterObj(elemDict, iterObj, replaceKeyForValue=False):
+	'''given a dict of elements and an iterable object, if the elements are
+	found in the iterable object, it replaces the None value with the iterable element '''
+	#if it's not a dict, make it a dict
+	if type(elemDict) is not dict:
+		elemList, elemDict = list(elemDict), {}
+		for index,key in enumerate(elemList):
+			#if the token appears multiple times in the list
+			if key in elemDict:
+				elemDict[key] = (None, elemDict[key][1]+[index])
+			else:
+				elemDict[key] = (None, [index])
+	#if the element is in the iterable object
+	for keyElem,valueElem in elemDict.items():
+		if valueElem[0] == None and keyElem in iterObj:
+			#if the iterable object is a dict and we want the value, not the key
+			if type(iterObj) is dict and replaceKeyForValue != False:
+				elemDict[keyElem] = (iterObj[keyElem], valueElem[1])
+			else:
+				elemDict[keyElem] = (keyElem, valueElem[1])
+		#if there is a numeric or ascii symbol character in the token we take it as is
+		elif len(re.findall( re.compile(r'([0-9]|-|\+|\!|\#|\$|%|&|\'|\*|\?|\.|\^|_|`|\||~|:|@)' ), keyElem)) > 0:
+			elemDict[keyElem] = (keyElem, valueElem[1])
+	return elemDict
+
+
+def applyNaiveStatCorrection(notPresentList, elemDict, lang, wordCountDict, dejavuDict):
+	''' given a list of uncorrected tokens, applies a naive statistic spell correction
+	and saves the result to the dict '''
+	#multi threading
+	with closing( mp.Pool(processes=4) ) as pool:
+		#put in a variable the function correction with a constant argument lang
+		correctionWithConstantLangVar = partial(correction, lang=lang, returnProbabilityScore=False, wordCountDict=wordCountDict)
+		#correct each token and put it in a different list using multiprocessing to go faster
+		correctedStringTokenList = pool.map( correctionWithConstantLangVar, list(notPresentList) )
+	#dump into dict
+	for index, notCorrectedTok in enumerate(notPresentList):
+		#into the element dict
+		elemDict[notCorrectedTok] = ( correctedStringTokenList[index], elemDict[notCorrectedTok][1] )
+		#and into the deja vu dict
+		dejavuDict[notCorrectedTok] = correctedStringTokenList[index]
+	return elemDict, dejavuDict
+
+
+def gethigherIndex(aDict):
+	higherIndex = 0
+	for valTupl in aDict.values():
+		for ind in valTupl[1]:
+			if ind > higherIndex:
+				higherIndex = ind
+	return higherIndex
+
+
+def elemDictToList(elemDict):
+	''''''
+	correctedStringTokenList = [None] * (gethigherIndex(elemDict)+1)
+	changedTokenCounter = 0
+	for keyTok,valTok in elemDict.items():
+		if valTok[0] != None:
+			for valIndex in valTok[1]:
+				correctedStringTokenList[valIndex] = valTok[0] 
+			changedTokenCounter += 1
+		else:
+			correctedStringTokenList[valTok[1]] = keyTok
+	return correctedStringTokenList
+
+
+def naiveSpellChecker(string, dejavuDict={}, lang=u'en', wordCountDict=None, returnCorrectedTokenScore=False, captureSymbols=False):
 	'''
-	for each token in the string, it returns the most closely 
-	related and most counted token in the bid data
+	for each token in the string, it returns the most statistically 
+	closely	related and most counted token in the big data
 	'''
-	pool = mp.Pool() 
+	def getGreaterVal(listOfLists):
+		greater = [None, 0]
+		for aList in listOfLists:
+			if aList[1] > greater[1]:
+				greater = aList
+		return greater[0]
 	#get the tokens from the string
-	stringTokenList = naiveRegexTokenizer(string, caseSensitive=True, eliminateStopwords=False)
-	correctedStringTokenList = []
-	#put in a variable the function correction with a constant argument lang
-	correctionWithConstantLangVar = partial(correction, lang=lang, returnProbabilityScore=False, wordCountDict=wordCountDict)
-	#correct each token and put it in a different list using multiprocessing to go faster
-	correctedStringTokenList = pool.map(correctionWithConstantLangVar, stringTokenList)
+	stringTokenList = naiveRegexTokenizer(string, caseSensitive=False, eliminateStopwords=False, captureSymbols=captureSymbols)
+	#get the most common (and probably correctly written) tokens from wikipedia
+	setOfMostCommon = set([ key.lower() for key in utilsOs.openJsonFileAsDict(u'./utilsString/tokDict/{0}TokReducedLessThan1000Instances.json'.format(lang)) ])
+	#get the abbreviation dict
+	abbreviationDict = { key:getGreaterVal(value) for key,value in utilsOs.openJsonFileAsDict(u'./utilsString/tokDict/{0}AbbrevDictReducedLess1000.json'.format(lang)).items() }
+	#verify if the tokens are not already well written	
+	elemDict = getElemsNotInIterObj(stringTokenList, setOfMostCommon)
+	#verify if not in dejavus
+	elemDict = getElemsNotInIterObj(elemDict, dejavuDict, replaceKeyForValue=True)
+	#verify if it's not an abbreviation	
+	elemDict = getElemsNotInIterObj(elemDict, abbreviationDict, replaceKeyForValue=True)
+	#if there are still tokens that have not yet been seen
+	notPresentList = [ k for k,v in elemDict.items() if v[0] == None]
+	if len(notPresentList) != 0:
+		#apply correction
+		elemDict, dejavuDict = applyNaiveStatCorrection(notPresentList, elemDict, lang, wordCountDict, dejavuDict)
+	#make a list of the final elements to return
+	correctedStringTokenList = elemDictToList(elemDict)
 	#give a normalized score representing how many tokens in the whole string needed some level of correction
 	if returnCorrectedTokenScore != False:
-		correctedTokenScore = float(len([ tok for tok in correctedStringTokenList if tok not in stringTokenList ])) / float(len(stringTokenList))
-		return u' '.join(correctedStringTokenList), correctedTokenScore
+		correctedTokenScore = float(len([ tok for tok in elemDict if tok not in setOfMostCommon ])) / float(len(elemDict))
+		return u' '.join(correctedStringTokenList), correctedTokenScore, dejavuDict
 	#otherwise
-	return u' '.join(correctedStringTokenList)
+	return u' '.join(correctedStringTokenList), dejavuDict
+
+
+def naiveSpellCheckerOrora(string, dejavuDict={}, lang=u'en', wordCountDict=None, returnCorrectedTokenScore=False, capturePunctuation=False, captureSymbols=[r'\+', r'\#', r'\$', r'%', r'&', r'\'', r'\*', r'`', r'\|', r'~', r':', r'-']):
+	'''
+	for each token in the string, it returns the most statistically 
+	closely	related and most counted token in the big data
+	'''	
+	def getGreaterVal(listOfLists):
+		greater = [None, 0]
+		for aList in listOfLists:
+			if aList[1] > greater[1]:
+				greater = aList
+		return greater[0]
+	#get the tokens from the string
+	stringTokenList = naiveRegexTokenizer(string, caseSensitive=False, eliminateStopwords=False, capturePunctuation=capturePunctuation, captureSymbols=captureSymbols)
+	#get the most common (and probably correctly written) tokens from wikipedia, if there is a number or symbol in the set of most commons, eliminate it
+	nbAndSymbols = re.compile(r'([0-9]|-|\+|\!|\#|\$|%|&|\'|\*|\?|\.|\^|_|`|\||~|:|@)')
+	setOfMostCommon = set([ key.lower() for key in utilsOs.openJsonFileAsDict(u'./utilsString/tokDict/{0}TokReducedLessThan1000Instances.json'.format(lang)) if len(re.findall(nbAndSymbols, key))==0])
+	#get the abbreviation dict
+	abbreviationDict = { key:getGreaterVal(value) for key,value in utilsOs.openJsonFileAsDict(u'./utilsString/tokDict/{0}AbbrevDictORORA.json'.format(lang)).items() }
+	#verify if the tokens are not already well written	
+	elemDict = getElemsNotInIterObj(stringTokenList, setOfMostCommon)
+	#verify if not in dejavus
+	elemDict = getElemsNotInIterObj(elemDict, dejavuDict, replaceKeyForValue=True)
+	#verify if it's not an abbreviation	
+	elemDict = getElemsNotInIterObj(elemDict, abbreviationDict, replaceKeyForValue=True)
+	#if there are still tokens that have not yet been seen
+	notPresentList = [ k for k,v in elemDict.items() if v[0] == None]
+	if len(notPresentList) != 0:
+		#apply correction
+		elemDict, dejavuDict = applyNaiveStatCorrection(notPresentList, elemDict, lang, wordCountDict, dejavuDict)
+	#make a list of the final elements to return
+	correctedStringTokenList = elemDictToList(elemDict)
+	#give a normalized score representing how many tokens in the whole string needed some level of correction
+	if returnCorrectedTokenScore != False:
+		correctedTokenScore = float(len([ tok for tok in elemDict if tok not in setOfMostCommon ])) / float(len(elemDict))
+		return u' '.join(correctedStringTokenList), correctedTokenScore, dejavuDict
+	#otherwise
+	return u' '.join(correctedStringTokenList), dejavuDict
 
 
 def naiveNgramSpellChecker(string, n=3, lang=u'en'):
@@ -687,7 +851,7 @@ def getBigDataDict(ressourceType=u'token' ,lang=u'en'): ########################
 		return json.load(openedFile)
 
 
-def removeLessFrequentFromBigDataDict(inputFilePath, outputFilePath=None, minValue=1):
+def removeLessFrequentFromBigDataDict(inputFilePath, outputFilePath=None, minValue=1, removeNumbers=True):
 	''' makes a new dict but removing the hapax legomenon and less frequent tokens '''
 	bigDataDict = utilsOs.openJsonFileAsDict(inputFilePath)
 	print('BEFORE removing the less frequent tokens: ', len(bigDataDict))
@@ -695,6 +859,12 @@ def removeLessFrequentFromBigDataDict(inputFilePath, outputFilePath=None, minVal
 	for key, value in list(bigDataDict.items()):
 		if value <= minValue:
 			del bigDataDict[key]
+		#also remove numbers
+		elif removeNumbers == True:
+			try:
+				nb = float(key)
+				del bigDataDict[key]
+			except ValueError: pass
 	#dumping
 	if outputFilePath != None:
 		utilsOs.dumpDictToJsonFile(bigDataDict, outputFilePath, overwrite=True)
@@ -702,7 +872,7 @@ def removeLessFrequentFromBigDataDict(inputFilePath, outputFilePath=None, minVal
 	return bigDataDict
 
 
-def makeBigDataDictOfArtificialErrorsAndAbbreviations(inputFilePath, outputFilePath=None, errorsEditDist=1, abbreviations=True):
+def makeBigDataDictOfArtificialErrorsAndAbbreviations(inputFilePath, outputFilePath=None, errorsEditDist=1, abbreviations=True, unusualAbbrOnly=False):
 	''' Makes a new dict containing tokens with artificially induced errors with a specified
 	edit distance (must not be greater than 4) and each token's possible abreviations.
 	The original token will not appear in the error and abbreviation dict.'''
@@ -712,7 +882,7 @@ def makeBigDataDictOfArtificialErrorsAndAbbreviations(inputFilePath, outputFileP
 	def attributeEdits(token, errorsEditDist):
 		if errorsEditDist == 1:
 			return edits1(token)
-		elif errorsEditDist == 0 and errorsEditDist != None:
+		elif errorsEditDist == 0 or errorsEditDist == None:
 			return [token]
 		elif errorsEditDist == 2:
 			return edits2(token)
@@ -727,7 +897,7 @@ def makeBigDataDictOfArtificialErrorsAndAbbreviations(inputFilePath, outputFileP
 		errorsList = list(attributeEdits(token, errorsEditDist)) 
 		#get artificial abbreviations
 		if abbreviations == True:
-			abbrList = makeAbbreviations(token)
+			abbrList = makeAbbreviations(token, unusualAbbrOnly)
 		else: abbrList = []
 		#browse the error and abbr list
 		for artificialToken in set(errorsList+abbrList):
@@ -820,7 +990,7 @@ def getcorrespondingTokensAndEditDist(string1, string2, caseSensitive=False):
 	the corresponding token in string 2. It returns a tuple of each
 	correspondence and its edit distance '''
 	errorCorrespList = []
-	#replace repetition of space characters with the an distinctive symbol
+	#replace repetition of space characters with a distinctive symbol
 	for nbSpace in reversed(range(3, 10)):
 		if u' '*nbSpace in string1:
 			string1 = string1.replace(u' '*nbSpace, u' {0} '.format(u'¤*¤¤¤¤'*nbSpace))

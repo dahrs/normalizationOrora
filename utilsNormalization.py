@@ -66,6 +66,25 @@ def ororaZeAbbreviations(string, abbrDict=None):
 	return string
 
 
+def frenchFemininAccordsCodification(string, isInput=False):
+	''' replaces all possible french feminin accord with a code containing a 
+	number, so the normalization function doesn' change it
+	if isInput is False, then we transform the code into the original'''
+	femAccCorrespondence = [ (u'ée', u'¤0¤ée¤0¤'), (u'ee', u'¤0¤ee¤0¤'), (u'ÉE', u'¤0¤ÉE¤0¤'), (u'EE', u'¤0¤EE¤0¤'), (u'éE', u'¤0¤éE¤0¤'), (u'Ée', u'¤0¤Ée¤0¤'), (u'éé', u'¤0¤éE¤0¤'), (u'ÉÉ', u'¤0¤Ée¤0¤'), (u'eE', u'¤0¤eE¤0¤'), (u'Ee', u'¤0¤Ee¤0¤') ]
+	if isInput != False:
+		string = u'{0} '.format(string)
+		#find every feminin accord
+		femininAccords = re.compile(r'[e|é|E|É]{2}[\s|\.|,|?|!|;|:|)|\]|}]+')
+		femininAccordsList = re.findall(femininAccords, string)
+		for eeSubStr in femininAccordsList:
+			string = string.replace(eeSubStr, u'¤0¤{0}¤0¤{1}'.format(eeSubStr[:2], eeSubStr[-1]))
+	else:
+		string = string.replace(u'¤0¤', u'')
+		if string[-1] == u' ':
+			string = string[:-1]
+	return string
+
+
 ##################################################################################
 #RESULTS OF NORMALIZATION
 ##################################################################################
@@ -90,17 +109,23 @@ def applyNormalisationGetResult(goldStandardPath, normPath, normalizationFunctio
 		header = gsFile.readline()
 		#get first line
 		line = gsFile.readline()
+		#start an empty dejavuDict
+		dejavuDict = {}
 		#count and populate the norm
 		while line:
 			#get data
 			lineList = (line.replace(u'\n', u'')).split(u'\t')
 			commentId, originalComment, goldStandard = lineList
 			normOutput = str(originalComment)
+			#detect french feminin accord and fossilize the word by modifying its structure to something unchanged by the normalization function 
+			originalComment = frenchFemininAccordsCodification(originalComment, isInput=True)
 			#apply orora solution to abbreviations
 			###normOutput = ororaZeAbbreviations(normOutput) ########################
 			#apply the normalization function
 			if normalizationFunction != None:
-				normOutput = normalizationFunction(normOutput.lower(), *args) #normOutput = normalizationFunction(normOutput, *args) 
+				normOutput, dejavuDict = normalizationFunction(normOutput.lower(), dejavuDict, *args)
+			#reverse back the code for the feminin accord into its original form
+			normOutput = frenchFemininAccordsCodification(normOutput, isInput=False)
 			#get normalized output
 			normOutput = ororaZe(normOutput, advanced=True)
 			#evaluate if the normalized output corresponds to the gold standard

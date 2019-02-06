@@ -29,11 +29,16 @@ utilsString.makeTokNgramCountDictFromText(inputPath, outputPath, n=3)
 ##################################################################################
 
 frTokenDict = u'./utilsString/tokDict/frTok.json'
-frTokenDictReducedLess25 = './utilsString/tokDict/frTokReducedLessThan25Instances.json'
-frTokenDictReducedLess100 = './utilsString/tokDict/frTokReducedLessThan100Instances.json'
-frTokenDictReducedLess1000 = './utilsString/tokDict/frTokReducedLessThan1000Instances.json'
+frTokenDictReducedLess25 = u'./utilsString/tokDict/frTokReducedLessThan25Instances.json'
+frTokenDictReducedLess100 = u'./utilsString/tokDict/frTokReducedLessThan100Instances.json'
+frTokenDictReducedLess1000 = u'./utilsString/tokDict/frTokReducedLessThan1000Instances.json'
 
-utilsString.removeLessFrequentFromBigDataDict(frTokenDict, frTokenDictReducedLess100, minValue=1000)
+#utilsString.removeLessFrequentFromBigDataDict(frTokenDict, frTokenDictReducedLess100, minValue=100, removeNumbers=True)
+
+frAbbrDictReducedLess1000 = u'./utilsString/tokDict/frAbbrevDictReducedLess1000.json'
+frAbbrDictReducedLessOrora = u'./utilsString/tokDict/frAbbrevDictORORA.json'
+
+#utilsString.makeBigDataDictOfArtificialErrorsAndAbbreviations(frTokenDictReducedLess1000, frAbbrDictReducedLessOrora, errorsEditDist=0, abbreviations=True, unusualAbbrOnly=True)
 
 
 ##################################################################################
@@ -62,6 +67,6 @@ baselinePath = u'./004outputResult/000baseline.tsv'
 
 naiveSpellCheckPath = u'./004outputResult/000statSpellCheck.tsv'
 
-wordCountDict = utilsOs.openJsonFileAsDict(u'./utilsString/tokDict/frTok.json')
+wordCountDict = utilsOs.openJsonFileAsDict(u'./utilsString/tokDict/frTokReducedLessThan1000Instances.json')
 
-#utilsNormalization.applyNormalisationGetResult(goldStandardPath, naiveSpellCheckPath, utilsString.naiveSpellChecker, u'fr', wordCountDict, False)
+utilsNormalization.applyNormalisationGetResult(goldStandardPath, naiveSpellCheckPath, utilsString.naiveSpellCheckerOrora, u'fr', wordCountDict, False)
