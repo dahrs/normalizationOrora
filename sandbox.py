@@ -116,48 +116,10 @@ wikt = Wiktionary(XSAMPA=True)
 dump_file = "/data/rali5/Tmp/alfonsda/wikiDump/wiktionary/frwiktionary-20190201-pages-articles-multistream.xml"
 pron = wikt.extract_IPA(dump_file)
 '''
-def ororaZe(string, advanced=False):
-	''' 
-	' --> ''
-	\s\s --> \s
-	a --> A
-	à --» A
-	###########
-	the "plus" option:	
-	- --> \s
-	'''
-	#replace simple apostrophe with 2 apostrophes
-	string = string.replace(u"'", u"''")
-	#replace multiple spaces with 1 space
-	string = re.sub(r'(\s)+', ' ', string)
-	#advanced ororazation
-	if advanced != False:
-		#replace the hyphens with 1 space (the only place multiple spaces appear is where there use to be an hyphen sorrounded by spaces) 
-		string = string.replace(u'-', u' ')
-		#replace symbol chars with their equivalent
-		string = string.replace(u'???', u'?').replace(u'. . . .', u'0')
-		string = string.replace(u'. .', u'0').replace(u'??', u'?').replace(u'?!?', u'?').replace(u'_____', u' ')
-		string = string.replace(u'@', u'A').replace(u'[ ]', u'OK').replace(u'^', u' ').replace(u'_', u' ')
-		###string = string.replace(u'<(>&<)>', u'&').replace(u'</>', u'').replace(u'<H>', u'').replace(u'<U>', u'').replace(u'"', u'apostrophe').replace(u'**', u'0')
-	#uppercase it all
-	string = string.upper()
-	#replace diacritical characters with non diacritical characters
-	replacements = [(u'A', u'ÀÂ'), (u'E', u'ÉÈÊ'), (u'I', u'ÎÏ'), (u'O', u'Ô'), (u'U', u'ÙÛÜ'), (u'C', u'Ç')]
-	for replaceTuple in replacements:
-		for char in replaceTuple[1]:
-			string = string.replace(char, replaceTuple[0])
-	return string
-'''
-import utilsString, utilsOs, re
 
-wordCountDict = utilsOs.openJsonFileAsDict(u'./utilsString/tokDict/frTokReducedLessThan1000Instances.json')
+import utilsString
 
-line = 'PDF A METTRE HAUT-PARLEURS SUR CANAL 2 13.10.2017 10:14:48 EST Lorraine Fournel (FOURNELO) *DEMANDE PAR A.BRIE COURRIEL 13.10.2017'
-normOutput = str(line)
+a = 'PASS 55B TUNNEL X TOILE DECROCHE REPLACER TOILE RIVETTE SOUS TUNNEL ANNULE PAR P DUSSAULT TOILE BOUT DE TUNNEL NON REQUIS'
+b = 'PASS 55B TUNNEL X TOLE DECROCHEE REPLACER+ + TOLE RIVETEE SOUS TUNNEL + ANNULE PAR P.DUSSAULT   TOLE BOUT DE TUNNEL NON REQUIS'
 
-normOutput, dejavuDict = utilsString.naiveSpellCheckerOrora(normOutput.lower(), {}, u'fr', wordCountDict, returnCorrectedTokenScore=False, captureSymbols=[r'\+', r'\.', r'\(', r'\)', r'\[', r'\]', r'\{', r'\}', r'\#', r'\$', r'%', r'&', r'\'', r'\*', r'`', r'\|', r'~', r':', r'-'])
-
-print(ororaZe(normOutput, True))
-'''
-
-print('xdcvbn'[:-1])
+print(utilsString.align2SameLangStrings(a, b, caseSensitive=False, windowSize=6, tokenizingFunct=None))

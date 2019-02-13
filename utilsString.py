@@ -655,7 +655,7 @@ def naiveSpellChecker(string, dejavuDict={}, lang=u'en', wordCountDict=None, ret
 	return u' '.join(correctedStringTokenList), dejavuDict
 
 
-def naiveSpellCheckerOrora(string, dejavuDict={}, lang=u'en', wordCountDict=None, returnCorrectedTokenScore=False, capturePunctuation=False, captureSymbols=[r'\+', r'\#', r'\$', r'%', r'&', r'\'', r'\*', r'`', r'\|', r'~', r':', r'-']):
+def naiveSpellCheckerOrora(string, dejavuDict={}, lang=u'en', wordCountDict=None, returnCorrectedTokenScore=False, capturePunctuation=False, captureSymbols=[r'\+', r'\#', r'\$', r'%', r'&', r'\'', r'\*', r'`', r'\|', r'~', r':', r'-', r'¤']):
 	'''
 	for each token in the string, it returns the most statistically 
 	closely	related and most counted token in the big data
@@ -983,6 +983,100 @@ def langDictComparison(dictUnk, dictLang):
 		#distance calculation
 		distance+=abs((dictUnk[key]/maxUnk) - dictLang.get(key,0))
 	return distance
+
+
+##################################################################################
+#TEXT ALIGNMENT
+##################################################################################
+
+def vecinityAlignmentMatch(tokenList1, tokenList2, alignList1, alignList2, ind1, ind2, endInd2):
+	''' return the modified alignment lists if the token in "a" is found in a nearby index in "b"'''
+	ind2Temp = int(ind2)
+	if tokenList1[ind1] in tokenList2[ind2:endInd2]:
+		#look in the vecinity of the string2
+		while ind2Temp != endInd2:
+			#if it's not that particular element in the window, we add an empty element to the alignment
+			if tokenList1[ind1] != tokenList2[ind2Temp]:
+				alignList1.append(u'∅')				
+				alignList2.append(tokenList2[ind2Temp])				
+				ind2 = ind2+1 if ind2+1 != len(tokenList2) else None
+				ind2Temp += 1
+			#if we find the rigth element
+			else:
+				alignList1.append(tokenList1[ind1])
+				alignList2.append(tokenList2[ind2Temp])
+				#change both indices
+				ind1 = ind1+1 if ind1+1 != len(tokenList1) else None
+				ind2 = ind2+1 if ind2+1 != len(tokenList2) else None
+				#we stop to avoid going further than  the found element
+				break
+	return alignList1, alignList2, ind1, ind2
+
+
+def align2SameLangStrings(string1, string2, caseSensitive=False, windowSize=2, tokenizingFunct=None, *args):
+	''' given 2 strings in the same language, it aligns them in a table of tuples '''
+	alignString1 = []
+	alignString2 = []
+	#replace repetition of space characters with a distinctive symbol
+	for nbSpace in reversed(range(3, 10)):
+		if u' '*nbSpace in string1:
+			string1 = string1.replace(u' '*nbSpace, u' {0} '.format(u'¤*¤¤¤¤'*nbSpace))
+		if u' '*nbSpace in string2:
+			string1 = string2.replace(u' '*nbSpace, u' {0} '.format(u'¤*¤¤¤¤'*nbSpace))
+	#tokenize (we don't use the naive regex tokenizer to avoid catching the  "-" and "'" and so on)
+	if tokenizingFunct == None:
+		string1Tok = string1.split(u' ')
+		string2Tok = string2.split(u' ')
+	#if there is a particulat tokenizing function we wish to use
+	else:
+		string1Tok = tokenizingFunct(string1, *args)
+		string2Tok = tokenizingFunct(string2, *args)
+	#replace back the distinctive characters replacing the spaces with actual spaces
+	string1Tok = [elem.replace(u'¤*¤¤¤¤', u' ') for elem in string1Tok]
+	string2Tok = [elem.replace(u'¤*¤¤¤¤', u' ') for elem in string2Tok]
+	#prepare the alignment indexes
+	ind1, ind2 = 0, 0
+	#start aligning
+	while ind1 != len(string1Tok) and ind2 != len(string2Tok):
+		#if ind1 and 2 are None
+		if ind1 == None and ind2 == None:
+			break
+		#if ind1 is None
+		elif ind1 == None:
+			alignString1 = alignString1 + ([u'∅']*len(string2Tok[ind2:]))
+			alignString2 = alignString2 + string2Tok[ind2:]
+			break
+		#if ind2 is None
+		elif ind2 == None:
+			alignString2 = alignString2 + ([u'∅']*len(string1Tok[ind1:]))
+			alignString1 = alignString1 + string1Tok[ind1:]
+			break
+		#get the end index
+		endInd1 = ind1+windowSize+1 if ind1+windowSize+1 < len(string1Tok) else len(string1Tok)
+		endInd2 = ind2+windowSize+1 if ind2+windowSize+1 < len(string2Tok) else len(string2Tok)
+		#if they correspond
+		if string1Tok[ind1] == string2Tok[ind2]:
+			#add them to the aligned list
+			alignString1.append(string1Tok[ind1])
+			alignString2.append(string2Tok[ind2])
+			#change both indices
+			ind1 = ind1+1 if ind1+1 != len(string1Tok) else None
+			ind2 = ind2+1 if ind2+1 != len(string2Tok) else None
+		#if the token in string1 is found in a nearby index in string2 or vice-versa
+		elif string1Tok[ind1] in string2Tok[ind2:endInd2]:
+			alignString1, alignString2, ind1, ind2 = vecinityAlignmentMatch(string1Tok, string2Tok, alignString1, alignString2, ind1, ind2, endInd2)
+		#if the token in string2 is found in a nearby index in string1
+		elif string2Tok[ind2] in string1Tok[ind1:endInd1]:
+			alignString2, alignString1, ind2, ind1 = vecinityAlignmentMatch(string2Tok, string1Tok, alignString2, alignString1, ind2, ind1, endInd1)
+		#if the token is nowhere to be found
+		else:
+			#add them to the aligned list
+			alignString1.append(string1Tok[ind1])
+			alignString2.append(string2Tok[ind2])
+			#change both indices
+			ind1 = ind1+1 if ind1+1 != len(string1Tok) else None
+			ind2 = ind2+1 if ind2+1 != len(string2Tok) else None
+	return alignString1, alignString2
 
 
 def getcorrespondingTokensAndEditDist(string1, string2, caseSensitive=False):

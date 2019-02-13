@@ -9,6 +9,26 @@ import utilsOs, utilsGraph, utilsString
 
 
 ##################################################################################
+#ORORA WORD CORRESPONDENCES MAKER
+##################################################################################
+
+def makeDictFromTsvTrain(pathToTrainTsv, trainingDataColumnName, goldStandardColumnName, trainedDict=None, outputDictFilePath=None):
+	'''
+	Given a path to a "train" file, applies a heuristic dict maker
+	it opens it, searches for all possible general language spell 
+	corrections and chooses the ones reappearing somewhere else 
+	in the corpus
+	'''
+	trainedDict = trainedDict if trainedDict != None else {}
+	#open the train dataframe from the path
+	trainDf = utilsOs.getDataFrameFromArgs(pathToTrainTsv)
+	#get the specific data we want to use as train to populate our dict
+	trainData = trainDf[trainingDataColumnName]
+	print(trainData)
+
+
+
+##################################################################################
 #ORORA SYNTAXER
 ##################################################################################
 
@@ -89,7 +109,7 @@ def frenchFemininAccordsCodification(string, isInput=False):
 #RESULTS OF NORMALIZATION
 ##################################################################################
 
-def applyNormalisationGetResult(goldStandardPath, normPath, normalizationFunction=None, *args):
+def applyNormalisationGetResult(goldStandardPath, normPath, ororazeOutput=(True, True), normalizationFunction=None, *args):
 	''' 
 	if normalizationFunction is none, then it will create the baseline otherwise 
 	it will aplly the normalization function, ororaze it and evaluate the output 
@@ -118,7 +138,7 @@ def applyNormalisationGetResult(goldStandardPath, normPath, normalizationFunctio
 			commentId, originalComment, goldStandard = lineList
 			normOutput = str(originalComment)
 			#detect french feminin accord and fossilize the word by modifying its structure to something unchanged by the normalization function 
-			originalComment = frenchFemininAccordsCodification(originalComment, isInput=True)
+			normOutput = frenchFemininAccordsCodification(originalComment, isInput=True)
 			#apply orora solution to abbreviations
 			###normOutput = ororaZeAbbreviations(normOutput) ########################
 			#apply the normalization function
@@ -127,7 +147,11 @@ def applyNormalisationGetResult(goldStandardPath, normPath, normalizationFunctio
 			#reverse back the code for the feminin accord into its original form
 			normOutput = frenchFemininAccordsCodification(normOutput, isInput=False)
 			#get normalized output
-			normOutput = ororaZe(normOutput, advanced=True)
+			if ororazeOutput == True:
+				normOutput = ororaZe(normOutput, advanced=True)
+			elif type(ororazeOutput) is tuple or type(ororazeOutput) is list:
+				if ororazeOutput[0] == True:
+					normOutput = ororaZe(normOutput, advanced=ororazeOutput[1])
 			#evaluate if the normalized output corresponds to the gold standard
 			if normOutput == goldStandard:
 				positiveEvalCounter += 1

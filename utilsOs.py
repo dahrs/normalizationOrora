@@ -3,6 +3,7 @@
 
 
 import os, sys, json, codecs, gzip
+import pandas as pd
 
 ##################################################################################
 #FOLDERS
@@ -368,3 +369,27 @@ def moveUpAndLeftNLines(n, slowly=True):
 	if slowly == True:
 		import time
 		time.sleep(0.4)
+
+
+##################################################################################
+#DATAFRAME FUNCTIONS
+##################################################################################
+
+
+def getDataFrameFromArgs(df1arg, df2arg=None):
+	'''
+	we chech if 'df1arg' and 'df2arg' are string paths or pandas dataframes
+	'''
+	#df1
+	if type(df1arg) != str: # or type(df1arg) != unicode:
+		df1 = df1arg
+	else:
+		df1 = pd.read_csv(df1arg, sep=u'\t')
+	#df2
+	if df2arg is None:
+		return df1
+	elif type(df2arg) != str: # or type(df2arg) != unicode:
+		df2 = df2arg
+	else:
+		df2 = pd.read_csv(df2arg, sep=u'\t')
+	return df1, df2

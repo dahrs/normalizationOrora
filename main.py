@@ -1,7 +1,7 @@
 #!/usr/bin/python
 #-*- coding:utf-8 -*-  
 
-import utilsString, utilsDataStruct, utilsNormalization, utilsOs, dataFormater
+import utilsString, utilsDataStruct, utilsNormalization, utilsOs, dataFormater, utilsML
 
 
 ##################################################################################
@@ -56,9 +56,32 @@ goldStandardPath = u'./003goldStandard/inputOutputGs.tsv'
 #MAKE BASELINE
 ##################################################################################
 
-baselinePath = u'./004outputResult/000baseline.tsv'
+baselinePath = u'./004outputResult/000baselineZeroEffort.tsv'
 
-#utilsNormalization.applyNormalisationGetResult(goldStandardPath, baselinePath)
+#utilsNormalization.applyNormalisationGetResult(goldStandardPath, baselinePath, ororazeOutput=False)
+
+baselinePath = u'./004outputResult/000baselineOrorazedSimple.tsv'
+
+#utilsNormalization.applyNormalisationGetResult(goldStandardPath, baselinePath, ororazeOutput=(True, False))
+
+baselinePath = u'./004outputResult/000baselineOrorazedAdvanced.tsv'
+
+#utilsNormalization.applyNormalisationGetResult(goldStandardPath, baselinePath, ororazeOutput=True)
+
+
+##################################################################################
+#MAKE TRAIN, VALIDATION AND TEST SETS
+##################################################################################
+
+origDf = u'./003goldStandard/inputOutputGs.tsv'
+
+testSetsPath = u'./005mlModelsDatasets/'
+
+#utilsML.makeTrainTestValidSetsFromTsv(origDf, ratioSizes=[0.5, 0.3, 0.2], outputFolderPath=testSetsPath)
+
+crossValidSetsPath = u'./005mlModelsDatasets/crossValidation/'
+
+#utilsML.makeSetsForCrossVal(origDf, nbSegmentations=10, randomize=True, outputFolderPath=crossValidSetsPath)
 
 
 ##################################################################################
@@ -69,4 +92,10 @@ naiveSpellCheckPath = u'./004outputResult/000statSpellCheck.tsv'
 
 wordCountDict = utilsOs.openJsonFileAsDict(u'./utilsString/tokDict/frTokReducedLessThan1000Instances.json')
 
-utilsNormalization.applyNormalisationGetResult(goldStandardPath, naiveSpellCheckPath, utilsString.naiveSpellCheckerOrora, u'fr', wordCountDict, False)
+#utilsNormalization.applyNormalisationGetResult(goldStandardPath, naiveSpellCheckPath, True, utilsString.naiveSpellCheckerOrora, u'fr', wordCountDict, False)
+
+
+##################################################################################
+#APPLY NAIVE DICT LEARNING
+##################################################################################
+
