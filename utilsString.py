@@ -1013,7 +1013,64 @@ def vecinityAlignmentMatch(tokenList1, tokenList2, alignList1, alignList2, ind1,
 	return alignList1, alignList2, ind1, ind2
 
 
-def align2SameLangStrings(string1, string2, caseSensitive=False, windowSize=2, tokenizingFunct=None, *args):
+def makeSimilarityList4FirstTok1(tokens1, tokens2):
+	''' given 2 list of tokens, creates an ordered list containing all distances between the first token1 and all the tokens2 '''
+	similList = []
+	nonMatchTokens2 = []
+	#only compare for the immediate tokens2-neighbours that do not appear in tokens1
+	for tok2 in tokens2:
+		if tok2 not in tokens1:
+			nonMatchTokens2.append(tok2)
+		else: break
+	#make the similarity list with the other tokens
+	for i2, tok2 in enumerate(nonMatchTokens2):
+		similList.append([ distance.edit_distance(tokens1[0], tok2), tok2, i2 ])
+	#order the list
+	similList = sorted(similList, key=lambda distList: distList[0])
+	return similList
+
+
+def addTokToALign(immediateSimilList1, immediateSimilList2, tokenList1, tokenList2, alignList1, alignList2, ind1, ind2):
+	''''''
+	#we add to the token1		
+	emptyTokens = [u'∅']*immediateSimilList1[0][2]
+	alignList1 = alignList1 + emptyTokens + [tokenList1[ind1]]
+	ind1 = ind1+1 if ind1+1 != len(tokenList1) else None
+	#we add the token2
+	alignList2 = alignList2 + tokenList2[ ind2:(ind2+immediateSimilList1[0][2]+1) ]
+	ind2 = ind2+(1+immediateSimilList1[0][2]) if ind2+(1+immediateSimilList1[0][2]) != len(tokenList2) else None
+	return alignList1, alignList2, ind1, ind2
+
+
+def getMostSimilarAlignment(tokenList1, tokenList2, alignList1, alignList2, ind1, ind2, endInd1, endInd2):
+	''' looks at the context window of the token and populates the alignString list to match the most similar to the token '''
+	immediateSimilList1 = makeSimilarityList4FirstTok1( tokenList1[ind1:endInd1], tokenList2[ind2:endInd2] )
+	immediateSimilList2 = makeSimilarityList4FirstTok1( tokenList2[ind2:endInd2], tokenList1[ind1:endInd1] )
+	#decide which token (the first one from the first list or form the second list) has better similarity
+	if immediateSimilList1[0][0] == immediateSimilList2[0][0]: #if 
+		#if there is a cross, e.g., l1 = [7, 8] ; l2 = [8, 9]    and the distance is the same
+		if immediateSimilList1[0][0] == immediateSimilList2[0][0] and immediateSimilList1[0][2] != 0 and immediateSimilList2[0][2] != 0 and immediateSimilList1[0][2] == immediateSimilList2[0][2]:
+			#we return the first token of both lists
+			alignList1.append(tokenList1[ind1])
+			alignList2.append(tokenList2[ind2])
+			#change both indices
+			ind1 = ind1+1 if ind1+1 != len(tokenList1) else None
+			ind2 = ind2+1 if ind2+1 != len(tokenList2) else None
+		#take the first appearing one
+		elif immediateSimilList1[0][2] <= immediateSimilList2[0][2]:
+			alignList1, alignList2, ind1, ind2 = addTokToALign(immediateSimilList1, immediateSimilList2, tokenList1, tokenList2, alignList1, alignList2, ind1, ind2)
+		else:
+			alignList2, alignList1, ind2, ind1 = addTokToALign(immediateSimilList2, immediateSimilList1, tokenList2, tokenList1, alignList2, alignList1, ind2, ind1)
+	#if the distance for the token1 is smaller
+	elif immediateSimilList1[0][0] < immediateSimilList2[0][0]:
+		alignList1, alignList2, ind1, ind2 = addTokToALign(immediateSimilList1, immediateSimilList2, tokenList1, tokenList2, alignList1, alignList2, ind1, ind2)
+	#if the distance for the token 2 is smaller
+	else:
+		alignList2, alignList1, ind2, ind1 = addTokToALign(immediateSimilList2, immediateSimilList1, tokenList2, tokenList1, alignList2, alignList1, ind2, ind1)
+	return alignList1, alignList2, ind1, ind2 
+
+
+def align2SameLangStrings(string1, string2, windowSize=2, alignMostSimilar=False, tokenizingFunct=None, *args):
 	''' given 2 strings in the same language, it aligns them in a table of tuples '''
 	alignString1 = []
 	alignString2 = []
@@ -1022,12 +1079,12 @@ def align2SameLangStrings(string1, string2, caseSensitive=False, windowSize=2, t
 		if u' '*nbSpace in string1:
 			string1 = string1.replace(u' '*nbSpace, u' {0} '.format(u'¤*¤¤¤¤'*nbSpace))
 		if u' '*nbSpace in string2:
-			string1 = string2.replace(u' '*nbSpace, u' {0} '.format(u'¤*¤¤¤¤'*nbSpace))
+			string2 = string2.replace(u' '*nbSpace, u' {0} '.format(u'¤*¤¤¤¤'*nbSpace))
 	#tokenize (we don't use the naive regex tokenizer to avoid catching the  "-" and "'" and so on)
 	if tokenizingFunct == None:
 		string1Tok = string1.split(u' ')
 		string2Tok = string2.split(u' ')
-	#if there is a particulat tokenizing function we wish to use
+	#if there is a particular tokenizing function we wish to use
 	else:
 		string1Tok = tokenizingFunct(string1, *args)
 		string2Tok = tokenizingFunct(string2, *args)
@@ -1068,6 +1125,9 @@ def align2SameLangStrings(string1, string2, caseSensitive=False, windowSize=2, t
 		#if the token in string2 is found in a nearby index in string1
 		elif string2Tok[ind2] in string1Tok[ind1:endInd1]:
 			alignString2, alignString1, ind2, ind1 = vecinityAlignmentMatch(string2Tok, string1Tok, alignString2, alignString1, ind2, ind1, endInd1)
+		#if we want to try and match the most similar in each vecinity
+		elif alignMostSimilar != False:
+			alignString1, alignString2, ind1, ind2 = getMostSimilarAlignment(tokenList1, tokenList2, alignList1, alignList2, ind1, ind2, endInd1, endInd2)
 		#if the token is nowhere to be found
 		else:
 			#add them to the aligned list

@@ -47,9 +47,9 @@ frAbbrDictReducedLessOrora = u'./utilsString/tokDict/frAbbrevDictORORA.json'
 
 inputPath = u'./002Data/client1input/inputClient1Unified.tsv'
 outputPath = u'./002Data/client1output/outputClient1Unified.tsv'
-goldStandardPath = u'./003goldStandard/inputOutputGs.tsv'
+testFilePath = u'./003goldStandard/inputOutputGs.tsv'
 
-###dataFormater.makeGoldStandardOrora(inputPath, outputPath, goldStandardPath)
+###dataFormater.makeGoldStandardOrora(inputPath, outputPath, testFilePath)
 
 
 ##################################################################################
@@ -58,15 +58,15 @@ goldStandardPath = u'./003goldStandard/inputOutputGs.tsv'
 
 baselinePath = u'./004outputResult/000baselineZeroEffort.tsv'
 
-#utilsNormalization.applyNormalisationGetResult(goldStandardPath, baselinePath, ororazeOutput=False)
+#utilsNormalization.applyNormalisationGetResult(testFilePath, baselinePath, ororazeOutput=False)
 
-baselinePath = u'./004outputResult/000baselineOrorazedSimple.tsv'
+baselinePath = u'./004outputResult/001baselineOrorazedSimple.tsv'
 
-#utilsNormalization.applyNormalisationGetResult(goldStandardPath, baselinePath, ororazeOutput=(True, False))
+#utilsNormalization.applyNormalisationGetResult(testFilePath, baselinePath, ororazeOutput=(True, False))
 
-baselinePath = u'./004outputResult/000baselineOrorazedAdvanced.tsv'
+baselinePath = u'./004outputResult/002baselineOrorazedAdvanced.tsv'
 
-#utilsNormalization.applyNormalisationGetResult(goldStandardPath, baselinePath, ororazeOutput=True)
+#utilsNormalization.applyNormalisationGetResult(testFilePath, baselinePath, ororazeOutput=True)
 
 
 ##################################################################################
@@ -77,25 +77,51 @@ origDf = u'./003goldStandard/inputOutputGs.tsv'
 
 testSetsPath = u'./005mlModelsDatasets/'
 
-#utilsML.makeTrainTestValidSetsFromTsv(origDf, ratioSizes=[0.5, 0.3, 0.2], outputFolderPath=testSetsPath)
+#utilsML.makeTrainTestValidSetsFromTsv(origDf, ratioSizes=[0.2, 0.8], outputFolderPath=testSetsPath)
 
 crossValidSetsPath = u'./005mlModelsDatasets/crossValidation/'
 
-#utilsML.makeSetsForCrossVal(origDf, nbSegmentations=10, randomize=True, outputFolderPath=crossValidSetsPath)
+utilsML.makeSetsForCrossVal(origDf, nbSegmentations=0.2, randomize=True, outputFolderPath=crossValidSetsPath)
+
+
+##################################################################################
+#MAKE ABBREVIATION DICT FROM TRAIN
+##################################################################################
+
+learnedAbbrDictPath = u'./007learnedDict/learnedOroraAbbrDict.json'
+#utilsNormalization.makeDictFromTsvTrain(u'./005mlModelsDatasets/train.tsv', u'CommentIn', u'CommentOut', outputDictFilePath=learnedAbbrDictPath, preOrorazeOrig=False)
 
 
 ##################################################################################
 #APPLY STATISTICAL AND NAIVE TOKEN SPELL CHECKER 
 ##################################################################################
 
-naiveSpellCheckPath = u'./004outputResult/000statSpellCheck.tsv'
+naiveSpellCheckPath = u'./004outputResult/003statSpellCheck.tsv'
 
-wordCountDict = utilsOs.openJsonFileAsDict(u'./utilsString/tokDict/frTokReducedLessThan1000Instances.json')
+#wordCountDict = utilsOs.openJsonFileAsDict(u'./utilsString/tokDict/frTokReducedLessThan1000Instances.json')
 
-#utilsNormalization.applyNormalisationGetResult(goldStandardPath, naiveSpellCheckPath, True, utilsString.naiveSpellCheckerOrora, u'fr', wordCountDict, False)
+#utilsNormalization.applyNormalisationGetResult(testFilePath, naiveSpellCheckPath, True, False, utilsString.naiveSpellCheckerOrora, u'fr', wordCountDict, False)
 
 
 ##################################################################################
 #APPLY NAIVE DICT LEARNING
 ##################################################################################
+
+
+replacedFromAbbrDictFilePath = u'./004outputResult/004fromLearnedAbbrDict.tsv'
+testFilePath = u'./005mlModelsDatasets/test.tsv'
+
+#utilsNormalization.applyNormalisationGetResult(testFilePath, replacedFromAbbrDictFilePath, ororazeOutput=True, useAbbrDict=learnedAbbrDictPath, normalizationFunction=None)
+
+
+resultFilePath = u'./004outputResult/005fromLearnedAbbrDictCrosVal.results'
+
+utilsNormalization.applyNormalisationGetResultCrossVal(crossValidSetsPath, resultFilePath, ororazeOutput=True, preOrorazeOrig=False, normalizationFunction=None)
+
+
+##################################################################################
+#APPLY NAIVE DICT LEARNING WITH IMPROVED EDIT-DIST ALIGNER
+##################################################################################
+
+
 

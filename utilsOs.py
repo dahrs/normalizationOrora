@@ -393,3 +393,8 @@ def getDataFrameFromArgs(df1arg, df2arg=None):
 	else:
 		df2 = pd.read_csv(df2arg, sep=u'\t')
 	return df1, df2
+
+
+def dumpDataFrame(df, dfPath):
+	'''  '''
+	df.to_csv(dfPath, sep='\t', index=False)
