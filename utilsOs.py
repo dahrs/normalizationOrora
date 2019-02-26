@@ -26,6 +26,9 @@ def emptyTheFolder(directoryPath, fileExtensionOrListOfExtensions=u'*'):
 		elif fileExtensionOrListOfExtensions == u'*':
 			filelist = [file for file in os.listdir(directoryPath)]
 		else:
+			#get rid of the dot if there is one
+			fileExtensionOrListOfExtensions = fileExtensionOrListOfExtensions[1:] if fileExtensionOrListOfExtensions[0] == u'.' else fileExtensionOrListOfExtensions
+			#make list of files finishong with  '.[format]'
 			filelist = [file for file in os.listdir(directoryPath) if file.endswith(u".%s" %(fileExtensionOrListOfExtensions)) ]
 		#we delete the files
 		for file in filelist:
@@ -375,8 +378,7 @@ def moveUpAndLeftNLines(n, slowly=True):
 #DATAFRAME FUNCTIONS
 ##################################################################################
 
-
-def getDataFrameFromArgs(df1arg, df2arg=None):
+def getDataFrameFromArgs(df1arg, df2arg=None, header=True):
 	'''
 	we chech if 'df1arg' and 'df2arg' are string paths or pandas dataframes
 	'''
@@ -384,15 +386,25 @@ def getDataFrameFromArgs(df1arg, df2arg=None):
 	if type(df1arg) != str: # or type(df1arg) != unicode:
 		df1 = df1arg
 	else:
-		df1 = pd.read_csv(df1arg, sep=u'\t')
+		#with header as df.columns
+		if header == True:
+			df1 = pd.read_csv(df1arg, sep=u'\t')
+		#without header (useful for series instead of df)
+		else:
+			df1 = pd.read_csv(df1arg, sep=u'\t', header=None)
 	#df2
 	if df2arg is None:
 		return df1
 	elif type(df2arg) != str: # or type(df2arg) != unicode:
 		df2 = df2arg
 	else:
-		df2 = pd.read_csv(df2arg, sep=u'\t')
-	return df1, df2
+		#with header as df.columns
+		if header == True:
+			df2 = pd.read_csv(df2arg, sep=u'\t')
+		#without header (useful for series instead of df)
+		else:			
+			df2 = pd.read_csv(df2arg, sep=u'\t', header=None)
+	return df1, df2 
 
 
 def dumpDataFrame(df, dfPath):

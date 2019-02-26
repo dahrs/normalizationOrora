@@ -203,6 +203,17 @@ def isItGibberish(string, gibberishTreshold=0.49, exoticCharSensitive=False):
 	return False
 
 
+def eliminateMultipleSpaces(string):
+	''''''
+	if type(string) is int or type(string) is float:
+		return string
+	#find all multiple spaces
+	listSpaces = re.findall(r'[ ]{2,}', string)
+	for spaceChars in listSpaces:
+		string = string.replace(spaceChars, u'')
+	return string
+
+
 ##################################################################################
 #LANGUAGE
 ##################################################################################
@@ -1047,7 +1058,7 @@ def getMostSimilarAlignment(tokenList1, tokenList2, alignList1, alignList2, ind1
 	immediateSimilList1 = makeSimilarityList4FirstTok1( tokenList1[ind1:endInd1], tokenList2[ind2:endInd2] )
 	immediateSimilList2 = makeSimilarityList4FirstTok1( tokenList2[ind2:endInd2], tokenList1[ind1:endInd1] )
 	#decide which token (the first one from the first list or form the second list) has better similarity
-	if immediateSimilList1[0][0] == immediateSimilList2[0][0]: #if 
+	if immediateSimilList1[0][0] == immediateSimilList2[0][0]: #if the distance is the same
 		#if there is a cross, e.g., l1 = [7, 8] ; l2 = [8, 9]    and the distance is the same
 		if immediateSimilList1[0][0] == immediateSimilList2[0][0] and immediateSimilList1[0][2] != 0 and immediateSimilList2[0][2] != 0 and immediateSimilList1[0][2] == immediateSimilList2[0][2]:
 			#we return the first token of both lists
@@ -1127,7 +1138,7 @@ def align2SameLangStrings(string1, string2, windowSize=2, alignMostSimilar=False
 			alignString2, alignString1, ind2, ind1 = vecinityAlignmentMatch(string2Tok, string1Tok, alignString2, alignString1, ind2, ind1, endInd1)
 		#if we want to try and match the most similar in each vecinity
 		elif alignMostSimilar != False:
-			alignString1, alignString2, ind1, ind2 = getMostSimilarAlignment(tokenList1, tokenList2, alignList1, alignList2, ind1, ind2, endInd1, endInd2)
+			alignString1, alignString2, ind1, ind2 = getMostSimilarAlignment(string1Tok, string2Tok, alignString1, alignString2, ind1, ind2, endInd1, endInd2)
 		#if the token is nowhere to be found
 		else:
 			#add them to the aligned list

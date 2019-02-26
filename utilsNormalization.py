@@ -12,7 +12,16 @@ import utilsOs, utilsGraph, utilsString, utilsML
 #ORORA WORD CORRESPONDENCES MAKER
 ##################################################################################
 
-def makeDictFromTsvTrain(pathToTrainTsv, trainingDataColumnName, goldStandardColumnName, trainedDict=None, outputDictFilePath=None, preOrorazeOrig=False):
+def getNonExactMatch(a, b):
+	'''return the non identical elements between the original and the gold'''
+	if len(a) > len(b):
+		b = b + ( [u'∅']*(len(a)-len(b)) )
+	elif len(a) < len(b):
+		a = a + ( [u'∅']*(len(b)-len(a)) )
+	return [ (a[ind], b[ind]) for ind in range(len(a)) if a[ind] != b[ind] ]
+
+
+def makeDictFromTsvTrain(pathToTrainTsv, trainingDataColumnName, goldStandardColumnName, trainedDict=None, outputDictFilePath=None, preOrorazeOrig=False, alignMostSimilar=False):
 	'''
 	Given a path to a "train" file, applies a heuristic dict maker
 	it opens it, searches for all possible general language spell 
@@ -20,11 +29,6 @@ def makeDictFromTsvTrain(pathToTrainTsv, trainingDataColumnName, goldStandardCol
 	in the corpus
 	'''
 	trainedDict = trainedDict if trainedDict != None else {}
-	emptyList = []
-	#return the non identical elements between the original and the gold
-	def getNonExactMatch(a, b):
-		alignListA, alignListB = utilsString.align2SameLangStrings(a, b, windowSize=6, tokenizingFunct=None)
-		return [ (alignListA[ind], alignListB[ind]) for ind in range(len(alignListA)) if alignListA[ind] != alignListB[ind] ]
 	#open the train dataframe from the path
 	trainDf = utilsOs.getDataFrameFromArgs(pathToTrainTsv)
 	#get the specific data we want to use as train to populate our dict (original and gold standard)
@@ -228,7 +232,7 @@ def applyNormalisationGetResult(testFilePath, normOutPath=None, ororazeOutput=(T
 	return { u'exact positives': positiveEvalCounter, u'total comments': totalComments, u'ratio': (float(positiveEvalCounter)/float(totalComments)) }
 
 
-def applyNormalisationGetResultCrossVal(crossValFolderPath, resultFilePath, ororazeOutput=(True, True), preOrorazeOrig=False, normalizationFunction=None, *args):
+def applyNormalisationGetResultCrossVal(crossValFolderPath, resultFilePath, ororazeOutput=(True, True), preOrorazeOrig=False, alignMostSimilar=False, normalizationFunction=None, *args):
 	''' applies the applyNormalisationGetResult function once for each file in the cross validation folder 
 	and tests it against the remaining N-1 cross validation files '''
 	import os
@@ -244,7 +248,7 @@ def applyNormalisationGetResultCrossVal(crossValFolderPath, resultFilePath, oror
 		#browse each file
 		for indexFile, fileName in enumerate(listOfCrossValFiles):
 			#make the dict
-			makeDictFromTsvTrain(u'{0}{1}'.format(crossValFolderPath, fileName), u'CommentIn', u'CommentOut', outputDictFilePath=learnedAbbrDictPath, preOrorazeOrig=preOrorazeOrig)
+			makeDictFromTsvTrain(u'{0}{1}'.format(crossValFolderPath, fileName), u'CommentIn', u'CommentOut', outputDictFilePath=learnedAbbrDictPath, preOrorazeOrig=preOrorazeOrig, alignMostSimilar=alignMostSimilar)
 			#make a unified file with the rest of the files
 			unifiedTestSet = u'./tempUnified.tsv'
 			listOfTestFiles = listOfCrossValFiles[:indexFile] + listOfCrossValFiles[indexFile+1:]
@@ -261,4 +265,5 @@ def applyNormalisationGetResultCrossVal(crossValFolderPath, resultFilePath, oror
 			totalNbResults += resultDict[u'exact positives']
 		#dump the conclusion score result		
 		resultFile.write(u'AVERAGE RATIO: {0}\nAVERAGE EXACT POSITIVES: {1}'.format( totalRatioResult/len(listOfCrossValFiles), totalNbResults/len(listOfCrossValFiles) ))
+	return { u'average ratio': totalRatioResult/len(listOfCrossValFiles), u'average exact positives': totalNbResults/len(listOfCrossValFiles) }
 

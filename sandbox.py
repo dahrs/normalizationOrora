@@ -117,9 +117,13 @@ dump_file = "/data/rali5/Tmp/alfonsda/wikiDump/wiktionary/frwiktionary-20190201-
 pron = wikt.extract_IPA(dump_file)
 '''
 
-import utilsString
 
-a = 'PASS 55B TUNNEL X TOILE DECROCHE REPLACER TOILE RIVETTE SOUS TUNNEL ANNULE PAR P DUSSAULT TOILE BOUT DE TUNNEL NON REQUIS'
-b = 'PASS 55B TUNNEL X TOLE DECROCHEE REPLACER+ + TOLE RIVETEE SOUS TUNNEL + ANNULE PAR P.DUSSAULT   TOLE BOUT DE TUNNEL NON REQUIS'
 
-print(utilsString.align2SameLangStrings(a, b, caseSensitive=False, windowSize=6, tokenizingFunct=None))
+
+for x in range(10):
+	for i in range(10):
+		if i == 2 and x == 2:
+			print(111)
+			break
+			break
+print(x, i)

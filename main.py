@@ -81,7 +81,7 @@ testSetsPath = u'./005mlModelsDatasets/'
 
 crossValidSetsPath = u'./005mlModelsDatasets/crossValidation/'
 
-utilsML.makeSetsForCrossVal(origDf, nbSegmentations=0.2, randomize=True, outputFolderPath=crossValidSetsPath)
+utilsML.makeSetsForCrossVal(origDf, nbSegmentations=0.05, randomize=True, outputFolderPath=crossValidSetsPath)
 
 
 ##################################################################################
@@ -115,8 +115,9 @@ testFilePath = u'./005mlModelsDatasets/test.tsv'
 
 
 resultFilePath = u'./004outputResult/005fromLearnedAbbrDictCrosVal.results'
+alignMostSimilar = True
 
-utilsNormalization.applyNormalisationGetResultCrossVal(crossValidSetsPath, resultFilePath, ororazeOutput=True, preOrorazeOrig=False, normalizationFunction=None)
+utilsNormalization.applyNormalisationGetResultCrossVal(crossValidSetsPath, resultFilePath, ororazeOutput=True, preOrorazeOrig=False, alignMostSimilar=alignMostSimilar, normalizationFunction=None)
 
 
 ##################################################################################
