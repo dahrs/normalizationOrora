@@ -101,6 +101,15 @@ def unicodeCodeScore(string, countSpaces=False, unicodeBlocksList=[(0, 128)]):
 #REGEX
 ##################################################################################
 
+
+
+def removeStopwords(tokenList, language=u'english'):
+	from nltk.corpus import stopwords		
+	#stopwords
+	to_remove = set(stopwords.words("english") + ['', ' ', '&'])
+	return list(filter(lambda tok: tok not in to_remove, tokenList))
+
+
 def findAcronyms(string):
 	'''
 	Returns the acronyms found in the string.
@@ -115,6 +124,15 @@ def findAcronyms(string):
 	if len(re.findall(plainTokens, string)) != len(re.findall(upperTokens, string)) and len(re.findall(plainTokens, string)) >= 2:
 		return re.findall(acronyms, string)
 	return None
+
+
+def detectNbChar(string):
+	''' detects if there is a char in the string that is a number '''
+	pattern = re.compile(r'[0-9]')
+	s = pattern.search(string)
+	if s == None:
+		return False
+	return True
 
 
 def makeAbbreviations(token, unusualOnly=False):
@@ -291,13 +309,6 @@ def ngrams(string, n=3):
 		#add to the ngram list
 		ngramList.append(stringedNgram)
 	return ngramList
-
-
-def removeStopwords(tokenList, language=u'english'):
-	from nltk.corpus import stopwords		
-	#stopwords
-	to_remove = set(stopwords.words("english") + ['', ' ', '&'])
-	return list(filter(lambda tok: tok not in to_remove, tokenList))
 
 
 def words(string): return re.findall(r'\w+', string.lower().replace(u'\n', u' ')) #extracted from peter norvig spell post : https://norvig.com/spell-correct.html

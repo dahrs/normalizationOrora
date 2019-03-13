@@ -1,14 +1,24 @@
 #!/usr/bin/python
 #-*- coding:utf-8 -*- 
 
-import pandas as pd
+
 import os, codecs, sys, re, functools
+import pandas as pd
+import multiprocessing as mp
+from contextlib import closing
 from nltk.metrics import distance
+from nltk.corpus import stopwords	
+from functools import partial
 
 
 ######################################################################
 # OS FUNCTIONS 
 ######################################################################
+
+def getContentOfFolder(folderPath):
+	'''	Gets a list of all the files present in a specific folder '''
+	return [file for file in os.listdir(folderPath)]
+
 
 def getDataFrameFromArgs(df1arg, df2arg=None, header=True):
 	'''
@@ -139,7 +149,7 @@ def ororaZe(string, advanced=True):
 def advancedOroraze(string):
 	''' applies orora changes that are supposed to appear in the dict of pair words '''
 	#replace the hyphens with 1 space (the only place multiple spaces appear is where there use to be an hyphen sorrounded by spaces) 
-	string = string.replace(u'-', u' ')
+	string = string.replace(u'-', u' ').replace(u"''''", u"''").replace(u"'''", u"''")
 	#replace symbol chars with their equivalent
 	string = string.replace(u'???', u'?').replace(u'. . . .', u'0')
 	string = string.replace(u'. .', u'0').replace(u'??', u'?').replace(u'?!?', u'?').replace(u'_____', u' ')
@@ -179,6 +189,71 @@ def replaceTabs(string):
 	if type(string) is int or type(string) is float:
 		return string
 	return string.replace(u'\t', u' ')
+
+
+def isTokenStopWord(token, language=u'fr'):
+	''' detects if the token is a stop-word or not '''
+	lang = {u'fr':u'french', u'en': u'english'}
+	lang = lang[language] if len(language) == 2 else language
+	stopWordList = stopwords.words(lang)
+	if token.lower() in stopWordList:
+		return True
+	elif token in [ ororaZe(stopW, advanced=False) for stopW in stopWordList ]:
+		return True
+	elif token in [ ororaZe(stopW, advanced=True) for stopW in stopWordList ]:
+		return True
+	return False
+
+
+def removeStopwords(tokenList, language=u'english'):
+	from nltk.corpus import stopwords		
+	#stopwords
+	to_remove = set(stopwords.words("english") + ['', ' ', '&'])
+	return list(filter(lambda tok: tok not in to_remove, tokenList))
+
+
+def getTokenRegex(capturePunctuation=False, captureSymbols=False, language='english'):
+	''''''
+	prefix, suffix, punctuation, symbols = r"", r"", r"", r""
+	#gets some possible punctuation
+	if capturePunctuation == True:
+		punctuation = r'[。\.\?\!\:\;¡¿\(\)\[\]\{\}]+|'
+	#put all the given puntuation characters in a list, then in a regex string
+	elif capturePunctuation != False:
+		punctList = [punct for punct in capturePunctuation]
+		punctuation = r'[{0}]+|'.format( r''.join(punctList) ) if len(punctList) > 0 else r''
+	#adds the apostrophe at the start of the word in english and at the end of the word in other languages
+	if captureSymbols == True or u"'" in captureSymbols:
+		prefix, suffix = (r"(\b|')", r"\b") if language == 'english' else (r"\b", r"('|\b)")
+	#list the symbols
+	if captureSymbols == True:
+		symbols = r'|-|\+|\#|\$|%|&|\'|\*|\^|_|`|\||~|:|@|<|>'
+	elif captureSymbols != False:
+		#put all the symbols in a list then transform it into a string
+		symbList = [symb for symb in captureSymbols if symb != u"'"]
+		symbols = r'{0}'.format( r''.join(symbList) ) if len(symbList) > 0 else r''
+	return r"({0}{1}[\w{2}]+{3})".format(prefix, punctuation, symbols, suffix) 
+
+
+def naiveRegexTokenizer(string, caseSensitive=True, eliminateStopwords=False, language=u'english', capturePunctuation=False, captureSymbols=False):
+	'''
+	returns the token list using a very naive regex tokenizer
+	does not return the punctuation symbols nor the newline
+	if captureSymbols is a string or a list of strings then those strings will also be captured 
+	(ie, captureSymbols="'" , then r"(\b\w+(\b   |'   ))")
+	'''
+	#make the regex
+	regex = getTokenRegex(capturePunctuation, captureSymbols, language)
+	#make list of tokens
+	plainWords = re.compile(regex, re.UNICODE)
+	tokens = re.findall(plainWords, string.replace(u'\r', u'').replace(u'\n', u' '))
+	#if we don't want to be case sensitive
+	if caseSensitive != True:
+		tokens = [tok.lower() for tok in tokens]
+	#if we don't want the stopwords
+	if eliminateStopwords != False:
+		tokens = removeStopwords(tokens, language=language)
+	return tokens
 
 
 ######################################################################
@@ -352,6 +427,299 @@ def delEmptyElements(alignList1, alignList2):
 	return cleanAlignList1, cleanAlignList2
 
 
+##################################################################################
+#SPELLING
+##################################################################################
+
+
+def frenchFemininAccordsCodification(string, isInput=False):
+	''' replaces all possible french feminin accord with a code containing a 
+	number, so the normalization function doesn' change it
+	if isInput is False, then we transform the code into the original'''
+	femAccCorrespondence = [ (u'ée', u'¤0¤ée¤0¤'), (u'ee', u'¤0¤ee¤0¤'), (u'ÉE', u'¤0¤ÉE¤0¤'), (u'EE', u'¤0¤EE¤0¤'), (u'éE', u'¤0¤éE¤0¤'), (u'Ée', u'¤0¤Ée¤0¤'), (u'éé', u'¤0¤éE¤0¤'), (u'ÉÉ', u'¤0¤Ée¤0¤'), (u'eE', u'¤0¤eE¤0¤'), (u'Ee', u'¤0¤Ee¤0¤') ]
+	if isInput != False:
+		string = u'{0} '.format(string)
+		#find every feminin accord
+		femininAccords = re.compile(r'[e|é|E|É]{2}[\s|\.|,|?|!|;|:|)|\]|}]+')
+		femininAccordsList = re.findall(femininAccords, string)
+		for eeSubStr in femininAccordsList:
+			string = string.replace(eeSubStr, u'¤0¤{0}¤0¤{1}'.format(eeSubStr[:2], eeSubStr[-1]))
+	else:
+		string = string.replace(u'¤0¤', u'')
+		if string[-1] == u' ':
+			string = string[:-1]
+	return string
+
+
+def wordProbability(word, wordCountDict, N=None): 
+	'''Probability of `word`.
+	based on peter norvig spell post : https://norvig.com/spell-correct.html'''
+	#if the word is not in the dict
+	if word not in wordCountDict:
+		return 0
+	#if the word is present in the dict
+	if N == None:
+		N = sum(wordCountDict.values())
+	return wordCountDict[word] / N
+
+
+def correction(word, lang=u'en', returnProbabilityScore=False, wordCountDict=None): 
+	'''Most probable spelling correction for word.
+	based on statistical token frequency from peter norvig spell post : 
+	https://norvig.com/spell-correct.html
+	'''
+	if wordCountDict != None:
+		wordCountDict = openJsonFileAsDict(u'../utilsString/tokDict/{0}TokReducedLessThan100Instances.json'.format(lang))
+	cadidatesList = candidates(word, wordCountDict)
+	maxValWord = (word, 0)
+	#evaluate for all candidates wich is most probable
+	for candidate in cadidatesList:
+		val = wordProbability(candidate, wordCountDict)
+		if val > maxValWord[1]:
+			maxValWord = (candidate, val)
+	#if both the candidate and score are needed
+	if returnProbabilityScore != False:
+		#return most probable word and its score
+		return maxValWord
+	#if only the candidate is needed
+	else: 
+		#return most probable
+		return maxValWord[0]
+
+
+def correctionNgram(ngram, lang=u'en', ngramCountDict=None): 
+	'''Most probable spelling correction for ngram.
+	based on statistical ngram frequency
+		- 'hybrid' : using ngram frequency and if it doesn't find it, uses token frequency
+	based on from peter norvig spell post : https://norvig.com/spell-correct.html
+	'''
+	if ngramCountDict != None:
+		ngramCountDict = openJsonFileAsDict(u'../utilsString/tokDict/{0}Tok.json'.format(lang))
+	cadidatesList = candidatesNgram(ngram, ngramCountDict)
+	maxValNgram = (ngram, 0)
+	#evaluate for all candidates wich is most probable
+	for candidate in cadidatesList:
+		val = wordProbability(candidate, ngramCountDict)
+		if val > maxValNgram[1]:
+			maxValNgram = (candidate, val)
+	#return most probable
+	return maxValNgram
+
+
+def candidates(word, wordCountDict): 
+	'''Generate possible spelling corrections for word.
+	based on peter norvig spell post : https://norvig.com/spell-correct.html'''
+	return (known([word], wordCountDict) or known(edits1(word), wordCountDict) or known(edits2(word), wordCountDict) or [word])
+
+
+def candidatesNgram(ngram, ngramCountDict): 
+	'''Generate possible spelling corrections for word.
+	based on peter norvig spell post : https://norvig.com/spell-correct.html'''
+	return (known([ngram], ngramCountDict) 
+		or known(editsTrigram(ngram), ngramCountDict)
+		or [ngram])
+
+def known(words, wordCountDict): 
+	'''The subset of `words` that appear in the dictionary of wordCountDict.
+	based on peter norvig spell post : https://norvig.com/spell-correct.html'''
+	return set(w for w in words if w in wordCountDict)
+
+
+def edits1(word, lang=u'fr'):
+	'''All edits that are one edit away from `word`.
+	extracted from peter norvig spell post : https://norvig.com/spell-correct.html'''
+	letters	= u'abcdefghijklmnopqrstuvwxyz'
+	if lang == u'fr': letters += u'àâçéèêïîôùüû'
+	#make all possible 1-distance changes
+	splits = [(word[:i], word[i:])		for i in range(len(word) + 1)]
+	deletes = [L + R[1:]					for L, R in splits if R]
+	transposes = [L + R[1] + R[0] + R[2:]	for L, R in splits if len(R)>1]
+	replaces = [L + c + R[1:]				for L, R in splits if R for c in letters]
+	inserts = [L + c + R					for L, R in splits for c in letters]
+	return set(deletes + transposes + replaces + inserts)
+
+
+def edits2(word): 
+	'''All edits that are two edits away from `word`.
+	extracted from peter norvig spell post : https://norvig.com/spell-correct.html'''
+	return (e2 for e1 in edits1(word) for e2 in edits1(e1))
+
+
+def edits3(word): 
+	'''All edits that are three edits away from `word`.
+	based on peter norvig spell post : https://norvig.com/spell-correct.html'''
+	return (e3 for e1 in edits1(word) for e3 in edits2(e1))
+
+
+def edits4(word): 
+	'''All edits that are three edits away from `word`.
+	based on peter norvig spell post : https://norvig.com/spell-correct.html'''
+	return (e4 for e2 in edits2(word) for e4 in edits2(e2))
+
+
+def getAllEditsOfToken(token):
+	''' Generate all spelling variations for token '''
+	return edits1(token).union(edits2(token)).union(set([token]))
+
+
+def editsTrigram(ngram):
+	''' given an ngram, tokenizes, applies the edits to each token,
+	then returns the ngram '''
+	with closing( mp.Pool(processes=4) ) as pool:
+		ngramTokens = naiveRegexTokenizer(ngram)
+		token1Edits = pool.apply_async(getAllEditsOfToken, [ngramTokens[0]] )
+		#token1Edits = getAllEditsOfToken(ngramTokens[0])
+		token2Edits = pool.apply_async(getAllEditsOfToken, [ngramTokens[1]] )
+		#token2Edits = getAllEditsOfToken(ngramTokens[1])
+		token3Edits = pool.apply_async(getAllEditsOfToken, [ngramTokens[2]] )
+		#token3Edits = getAllEditsOfToken(ngramTokens[2])
+		setProducts = itertools.product(token1Edits.get(), token2Edits.get(), token3Edits.get())
+	return { u' '.join(editSet) for editSet in setProducts }
+
+
+def getElemsNotInIterObj(elemDict, iterObj, replaceKeyForValue=False):
+	'''given a dict of elements and an iterable object, if the elements are
+	found in the iterable object, it replaces the None value with the iterable element '''
+	#if it's not a dict, make it a dict
+	if type(elemDict) is not dict:
+		elemList, elemDict = list(elemDict), {}
+		for index,key in enumerate(elemList):
+			#if the token appears multiple times in the list
+			if key in elemDict:
+				elemDict[key] = (None, elemDict[key][1]+[index])
+			else:
+				elemDict[key] = (None, [index])
+	#if the element is in the iterable object
+	for keyElem,valueElem in elemDict.items():
+		if valueElem[0] == None and keyElem in iterObj:
+			#if the iterable object is a dict and we want the value, not the key
+			if type(iterObj) is dict and replaceKeyForValue != False:
+				elemDict[keyElem] = (iterObj[keyElem], valueElem[1])
+			else:
+				elemDict[keyElem] = (keyElem, valueElem[1])
+		#if there is a numeric or ascii symbol character in the token we take it as is
+		elif len(re.findall( re.compile(r'([0-9]|-|\+|\!|\#|\$|%|&|\'|\*|\?|\.|\^|_|`|\||~|:|@)' ), keyElem)) > 0:
+			elemDict[keyElem] = (keyElem, valueElem[1])
+	return elemDict
+
+
+def applyNaiveStatCorrection(notPresentList, elemDict, lang, wordCountDict, dejavuDict):
+	''' given a list of uncorrected tokens, applies a naive statistic spell correction
+	and saves the result to the dict '''
+	#multi threading
+	with closing( mp.Pool(processes=4) ) as pool:
+		#put in a variable the function correction with a constant argument lang
+		correctionWithConstantLangVar = partial(correction, lang=lang, returnProbabilityScore=False, wordCountDict=wordCountDict)
+		#correct each token and put it in a different list using multiprocessing to go faster
+		correctedStringTokenList = pool.map( correctionWithConstantLangVar, list(notPresentList) )
+	#dump into dict
+	for index, notCorrectedTok in enumerate(notPresentList):
+		#into the element dict
+		elemDict[notCorrectedTok] = ( correctedStringTokenList[index], elemDict[notCorrectedTok][1] )
+		#and into the deja vu dict
+		dejavuDict[notCorrectedTok] = correctedStringTokenList[index]
+	return elemDict, dejavuDict
+
+
+def gethigherIndex(aDict):
+	higherIndex = 0
+	for valTupl in aDict.values():
+		for ind in valTupl[1]:
+			if ind > higherIndex:
+				higherIndex = ind
+	return higherIndex
+
+
+def elemDictToList(elemDict):
+	''''''
+	correctedStringTokenList = [None] * (gethigherIndex(elemDict)+1)
+	changedTokenCounter = 0
+	for keyTok,valTok in elemDict.items():
+		if valTok[0] != None:
+			for valIndex in valTok[1]:
+				correctedStringTokenList[valIndex] = valTok[0] 
+			changedTokenCounter += 1
+		else:
+			correctedStringTokenList[valTok[1]] = keyTok
+	return correctedStringTokenList
+
+
+def naiveSpellChecker(string, dejavuDict={}, lang=u'en', wordCountDict=None, returnCorrectedTokenScore=False, captureSymbols=False):
+	'''
+	for each token in the string, it returns the most statistically 
+	closely	related and most counted token in the big data
+	'''
+	def getGreaterVal(listOfLists):
+		greater = [None, 0]
+		for aList in listOfLists:
+			if aList[1] > greater[1]:
+				greater = aList
+		return greater[0]
+	#get the tokens from the string
+	stringTokenList = naiveRegexTokenizer(string, caseSensitive=False, eliminateStopwords=False, captureSymbols=captureSymbols)
+	#get the most common (and probably correctly written) tokens from wikipedia
+	setOfMostCommon = set([ key.lower() for key in openJsonFileAsDict(u'../utilsString/tokDict/{0}TokReducedLessThan1000Instances.json'.format(lang)) ])
+	#get the abbreviation dict
+	abbreviationDict = { key:getGreaterVal(value) for key,value in openJsonFileAsDict(u'../utilsString/tokDict/{0}AbbrevDictReducedLess1000.json'.format(lang)).items() }
+	#verify if the tokens are not already well written	
+	elemDict = getElemsNotInIterObj(stringTokenList, setOfMostCommon)
+	#verify if not in dejavus
+	elemDict = getElemsNotInIterObj(elemDict, dejavuDict, replaceKeyForValue=True)
+	#verify if it's not an abbreviation	
+	elemDict = getElemsNotInIterObj(elemDict, abbreviationDict, replaceKeyForValue=True)
+	#if there are still tokens that have not yet been seen
+	notPresentList = [ k for k,v in elemDict.items() if v[0] == None]
+	if len(notPresentList) != 0:
+		#apply correction
+		elemDict, dejavuDict = applyNaiveStatCorrection(notPresentList, elemDict, lang, wordCountDict, dejavuDict)
+	#make a list of the final elements to return
+	correctedStringTokenList = elemDictToList(elemDict)
+	#give a normalized score representing how many tokens in the whole string needed some level of correction
+	if returnCorrectedTokenScore != False:
+		correctedTokenScore = float(len([ tok for tok in elemDict if tok not in setOfMostCommon ])) / float(len(elemDict))
+		return u' '.join(correctedStringTokenList), correctedTokenScore, dejavuDict
+	#otherwise
+	return u' '.join(correctedStringTokenList), dejavuDict
+
+
+def naiveSpellCheckerOrora(string, dejavuDict={}, lang=u'en', wordCountDict=None, returnCorrectedTokenScore=False, capturePunctuation=False, captureSymbols=[r'\+', r'\#', r'\$', r'%', r'&', r'\'', r'\*', r'`', r'\|', r'~', r':', r'-', r'¤']):
+	'''
+	for each token in the string, it returns the most statistically 
+	closely	related and most counted token in the big data
+	'''	
+	def getGreaterVal(listOfLists):
+		greater = [None, 0]
+		for aList in listOfLists:
+			if aList[1] > greater[1]:
+				greater = aList
+		return greater[0]
+	#get the tokens from the string
+	stringTokenList = naiveRegexTokenizer(string, caseSensitive=False, eliminateStopwords=False, capturePunctuation=capturePunctuation, captureSymbols=captureSymbols)
+	#get the most common (and probably correctly written) tokens from wikipedia, if there is a number or symbol in the set of most commons, eliminate it
+	nbAndSymbols = re.compile(r'([0-9]|-|\+|\!|\#|\$|%|&|\'|\*|\?|\.|\^|_|`|\||~|:|@)')
+	setOfMostCommon = set([ key.lower() for key in openJsonFileAsDict(u'../utilsString/tokDict/{0}TokReducedLessThan1000Instances.json'.format(lang)) if len(re.findall(nbAndSymbols, key))==0])
+	#get the abbreviation dict
+	abbreviationDict = { key:getGreaterVal(value) for key,value in openJsonFileAsDict(u'../utilsString/tokDict/{0}AbbrevDictORORA.json'.format(lang)).items() }
+	#verify if the tokens are not already well written	
+	elemDict = getElemsNotInIterObj(stringTokenList, setOfMostCommon)
+	#verify if not in dejavus
+	elemDict = getElemsNotInIterObj(elemDict, dejavuDict, replaceKeyForValue=True)
+	#verify if it's not an abbreviation	
+	elemDict = getElemsNotInIterObj(elemDict, abbreviationDict, replaceKeyForValue=True)
+	#if there are still tokens that have not yet been seen
+	notPresentList = [ k for k,v in elemDict.items() if v[0] == None]
+	if len(notPresentList) != 0:
+		#apply correction
+		elemDict, dejavuDict = applyNaiveStatCorrection(notPresentList, elemDict, lang, wordCountDict, dejavuDict)
+	#make a list of the final elements to return
+	correctedStringTokenList = elemDictToList(elemDict)
+	#give a normalized score representing how many tokens in the whole string needed some level of correction
+	if returnCorrectedTokenScore != False:
+		correctedTokenScore = float(len([ tok for tok in elemDict if tok not in setOfMostCommon ])) / float(len(elemDict))
+		return u' '.join(correctedStringTokenList), correctedTokenScore, dejavuDict
+	#otherwise
+	return u' '.join(correctedStringTokenList), dejavuDict
+
 
 ######################################################################
 # DATAFRAME CLEANERS
@@ -404,14 +772,14 @@ def cleanCorpusFromEncodingErrors(pathOriginalCorpus, cleanedOutputPath=None):
 	for index, row in problematicDf.iterrows():
 		alignOrig, alignGold = align2SameLangStrings(row[u'CommentIn'], row[u'CommentOut'], windowSize=4)
 		#delete from the gold the problematic chars that present no ambiguity
-		alignGold = [ elem.replace(u'’', u"''").replace(u'«', u'"').replace(u'»', u'"') for elem in alignGold]
+		alignGold = [ elem.replace(u'’', u"''").replace(u'‘', u"''").replace(u'«', u'"').replace(u'»', u'"') for elem in alignGold]
 		#browse the alignment lists to know what to replace
 		for ind, origElem in enumerate(alignOrig):
 			if u'’' in origElem:
 				#replace the problematic char in the original
-				alignOrig[ind] = origElem.replace(u'’', u"'")
+				alignOrig[ind] = origElem.replace(u'’', u"'").replace(u'‘', u"''")
 				alignGold = replaceWthGoodChar(alignGold, ind, problemCharList=[u'’', u'�'], goodChar=u"''")#we replace it with 2 single quotes because it corresponds to the ororazed format
-			if u'«' in origElem or u'»':
+			if u'«' in origElem or u'»' in origElem :
 				#replace the problematic char in the original
 				alignOrig[ind] = origElem.replace(u'«', u'"').replace(u'»', u'"')
 				alignGold = replaceWthGoodChar(alignGold, ind, problemCharList=[u'«', u'»', u'�'], goodChar=u'"')#we replace the « and the » characters with the same " char
@@ -420,6 +788,39 @@ def cleanCorpusFromEncodingErrors(pathOriginalCorpus, cleanedOutputPath=None):
 		problematicDf[u'CommentOut'][index] = u' '.join( [t for t in alignGold if t != u'∅'] )
 	#replace the original rows with the solved ones
 	originalAndGoldDf.update(problematicDf)
+	#replace in the whole df the unambiguous problematic chars that present no ambiguity
+	def mkReplace(string):
+		if type(string) is str:
+			return string.replace(u'’', u"''").replace(u'‘', u"''").replace(u'«', u'"').replace(u'»', u'"')
+		return string
+	originalAndGoldDf = originalAndGoldDf.applymap(mkReplace)
+	#dump
+	if cleanedOutputPath != None:
+		originalAndGoldDf.to_csv(cleanedOutputPath, sep='\t', index=False)
+	return originalAndGoldDf
+
+
+def cleanTruncatedComments(pathOriginalCorpus, cleanedOutputPath=None, ororaze=True, advanced=True):
+	''' given a path to a tsv df, it detects the truncated comments in the 
+	gold and gets rid of them both in the gold an in the orig 
+	#cleanTruncatedComments(u'./000corpus/inputOutputGsCleaned.tsv', u'./000corpus/inputOutputGsCleanedTrunc.tsv')'''
+	def applyAligner(row):
+		alignString1, alignString2 = align2SameLangStrings(row[u'CommentIn'], row[u'CommentOut'], windowSize=4, alignMostSimilar=True)
+		row[u'CommentIn'] = u' '.join(alignString1)
+		row[u'CommentOut'] = u' '.join(alignString2)
+		return row
+	#get df
+	originalAndGoldDf = getDataFrameFromArgs(pathOriginalCorpus)
+	#ororaze
+	if ororaze == True:
+		ororazePartial = functools.partial(ororaZe, advanced=advanced)
+		ororazedDf = originalAndGoldDf.copy()
+		ororazedDf[u'CommentIn'] = ororazedDf[u'CommentIn'].apply(ororazePartial)
+	#get aligned copy of df
+	alignedDf = ororazedDf.apply(applyAligner, axis=1)
+	#get all non-truncated matches
+	nonTruncDf = alignedDf.loc[~ alignedDf[u'CommentOut'].str.endswith(u'∅ ∅')]
+	originalAndGoldDf = originalAndGoldDf.iloc[originalAndGoldDf.index.isin(nonTruncDf.index)]
 	#dump
 	if cleanedOutputPath != None:
 		originalAndGoldDf.to_csv(cleanedOutputPath, sep='\t', index=False)
@@ -427,6 +828,7 @@ def cleanCorpusFromEncodingErrors(pathOriginalCorpus, cleanedOutputPath=None):
 
 
 
+
 #cleanCorpusFromEncodingErrors(u'./000corpus/inputOutputGs.tsv', cleanedOutputPath=u'./000corpus/inputOutputGsCleaned.tsv')
-
-
+#cleanTruncatedComments(u'./000corpus/inputOutputGsCleaned.tsv', u'./000corpus/inputOutputGsCleanedTrunc.tsv')
+#cleanCorpusToDifferentFromGsOnly(u'./000corpus/inputOutputGsCleanedTrunc.tsv', u'./000corpus/nonExactMatchCleaned.tsv', ororaze=False, advanced=False)
