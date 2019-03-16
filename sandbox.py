@@ -118,12 +118,7 @@ pron = wikt.extract_IPA(dump_file)
 '''
 
 
-
-
-for x in range(10):
-	for i in range(10):
-		if i == 2 and x == 2:
-			print(111)
-			break
-			break
-print(x, i)
+l = ['asdfg3ss', 'asdfg4ss', 'asdfg1ss', 'asdfg2ss']
+import re
+x = re.compile(r'[a-zA-Z]4[a-zA-Z]')
+print( [ t for t in l if x.search(t)] )

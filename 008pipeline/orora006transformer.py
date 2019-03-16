@@ -11,17 +11,26 @@ parser = argparse.ArgumentParser()
 
 parser.add_argument(u'-top', u'--testOriginalPath', type=str, default=u'./002sets/testOrig.tsv',
                     help=u'path to the file containing the original comments of the test')
-parser.add_argument(u'-trp', u'--transformedPath', type=str, default=u'./006transformed/transformedTest.tsv',
+parser.add_argument(u'-ip', u'--inputPath', type=str, default=u'./002sets/',
+                    help=u'path to the folder containing the comments of the test')
+parser.add_argument(u'-tfp', u'--transformedFilePath', type=str, default=u'./006transformed/transformedTest.tsv',
                     help=u'path to the file where we will dump the transformed comments of the test')
-parser.add_argument(u'-nfd', u'--normalizationFunctionOrDict', type=str, default=u'./005learnedDict/ororaAbbreviationDict.json', #humanMadeOroraAbbreviationDict.json
+parser.add_argument(u'-tp', u'--transformedPath', type=str, default=u'./006transformed/',
+                    help=u'path to the folder where we will dump the transformed comments of the test files')
+parser.add_argument(u'-nfd', u'--normalizationFunctionOrDict', type=str, default=u'./005learnedDict/ororaAbbreviationDict.json', #./005learnedDict/humanMadeDict/humanMadeOroraAbbreviationDict.json
                     help=u'path to the learned dict file')
+parser.add_argument(u'-dp', u'--pathToDicts', type=str, default=u'./005learnedDict/',
+                    help=u'path to the learned dict files')
 args = parser.parse_args()
 
 
 
-testOrigPath = args.testOriginalPath
-normOutPath = args.transformedPath
+testOrigFilePath = args.testOriginalPath
+normOutFilePath = args.transformedFilePath
 normalization = args.normalizationFunctionOrDict
+inputPath = args.inputPath
+dictPath = args.pathToDicts
+outputPath = args.transformedPath
 
 def ororaZeAbbreviations(string, abbrDict=None, listTheVariations=False):
 	''' 
@@ -103,7 +112,7 @@ def applyNormalisation(testOrigPath, normOutPath=None, normalization=None, *args
 def applyLearnedDictPlusHumanDict(testOrigPath, 
 								normOutPath=None, 
 								learnedDictPath=u'./005learnedDict/ororaAbbreviationDict.json', 
-								humanDictPath=u'./005learnedDict/humanMadeOroraAbbreviationDict.json'):
+								humanDictPath=u'./005learnedDict/humanMadeDict/humanMadeOroraAbbreviationDict.json'):
 	''' apply the normalization dict'''
 	#open the dicts
 	learnedDict = myUtils.openJsonFileAsDict(learnedDictPath)
@@ -123,14 +132,44 @@ def applyLearnedDictPlusHumanDict(testOrigPath,
 	return testOrigDf
 
 
+def applyNormalizationCrossVal(inputFolderPath, outputFolderPath, outputFileName, outputFormat, dictFolderPath):
+	'''  '''
+	#make sure the folder paths end in /
+	inputFolderPath = u'{0}/'.format(inputFolderPath) if inputFolderPath[-1] != u'/' else inputFolderPath
+	outputFolderPath = u'{0}/'.format(outputFolderPath) if outputFolderPath[-1] != u'/' else outputFolderPath
+	#get content of input folder (sets)
+	listSetFiles = myUtils.getContentOfFolder(inputFolderPath)
+	#eliminate all previous outputs from the align folder
+	myUtils.emptyTheFolder(outputFolderPath, outputFormat)
+	for nb in range(len(listSetFiles)):
+		#we verify that the test set (and therefore all subsequent files) exists
+		if str(nb) in u' '.join(listSetFiles):
+			nbPattern = myUtils.getNbPattern(nb)
+			#each cross validation file must have a number, find all non train files not containing said number as the test
+			listOfTestFiles = [ file for file in listSetFiles if not nbPattern.search(file) ]
+			listOfTestFiles = [ u'{0}{1}'.format(inputFolderPath, file) for file in listOfTestFiles if u'Orig' in file ]
+			#sort the list to get a uniform order of the files (according to the number)
+			listOfTestFiles.sort()
+			if len(listOfTestFiles) != 0:
+				#join all test file names
+				myUtils.unifyListOfTestSetsIntoOne(listOfTestFiles, outputUnifiedFilePath=u'./006transformed/temp.tsv')
+				#output file path
+				outputFilePath = u'{0}{1}{2}.{3}'.format(outputFolderPath, outputFileName, nb, outputFormat)
+				#get the right dict file paths
+				dictFilePath = u'{0}ororaAbbreviationDict{1}.json'.format(dictFolderPath, nb)
+				#launch function and dump
+				applyNormalisation(u'./006transformed/temp.tsv', outputFilePath, u'./005learnedDict/humanMadeDict/humanMadeOroraAbbreviationDict.json')
+	myUtils.deleteFile(u'./006transformed/temp.tsv')
+	return None
 
+
+#spell checker
 #wordCountDict = myUtils.openJsonFileAsDict(u'../utilsString/tokDict/frTokReducedLessThan1000Instances.json')
-#applyNormalisation(u'./002sets/test1Orig.tsv', u'./006transformed/transformedTest1.tsv', myUtils.naiveSpellCheckerOrora, u'fr', wordCountDict, False ###spell checker
+#applyNormalisation(u'./002sets/test1Orig.tsv', u'./006transformed/transformedTest1.tsv', myUtils.naiveSpellCheckerOrora, u'fr', wordCountDict, False) ###spell checker
 
-applyNormalisation(u'./002sets/test1Orig.tsv', u'./006transformed/transformedTest1.tsv', normalization)
-applyNormalisation(u'./002sets/test2Orig.tsv', u'./006transformed/transformedTest2.tsv', normalization)
-applyNormalisation(u'./002sets/test3Orig.tsv', u'./006transformed/transformedTest3.tsv', normalization)
+#auto and human dict
+#applyNormalisation(u'./002sets/test1Orig.tsv', u'./006transformed/transformedTest1.tsv', normalization) #auto dict normalization
+#applyLearnedDictPlusHumanDict(u'./002sets/test1Orig.tsv', u'./006transformed/transformedTest1.tsv') #auto+human dict normalization
 
-#applyLearnedDictPlusHumanDict(u'./002sets/test1Orig.tsv', u'./006transformed/transformedTest1.tsv')
-#applyLearnedDictPlusHumanDict(u'./002sets/test2Orig.tsv', u'./006transformed/transformedTest2.tsv')
-#applyLearnedDictPlusHumanDict(u'./002sets/test3Orig.tsv', u'./006transformed/transformedTest3.tsv')
+#auto dict cross val
+applyNormalizationCrossVal(inputPath, outputPath, u'transformedTest', u'tsv', dictPath)

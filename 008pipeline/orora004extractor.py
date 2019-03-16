@@ -7,17 +7,26 @@ import myUtils
 
 parser = argparse.ArgumentParser()
 
+parser.add_argument(u'-ap', u'--alignedPath', type=str, default=u'./003alignedTrainSet/',
+                    help=u'path to the files containing the alignment of the original and gold standard comments')
 parser.add_argument(u'-opl', u'--originalAlignedPathOrList', type=str, default=u'./003alignedTrainSet/alignedOrigLists.tsv',
                     help=u'path to the file containing the alignment of the original train comments')
-parser.add_argument(u'-gpl', u'--goldAlignedPathOrList', type=str, default=u'./003alignedTrainSet/alignedGoldLists.tsv',
+parser.add_argument(u'-gpl', u'--goldAlignedPathOrList', type=str, default=u'./003alignedTrainSet/alignedGSLists.tsv',
                     help=u'path to the file containing the alignment of the gold standard train comments')
+parser.add_argument(u'-ofp', u'--outputMatchFilePath', type=str, default=u'./004nonMatchExtracted/matchCounterDict.json',
+                    help=u'path to the file containing the matched elements in the train comments')
+parser.add_argument(u'-onfp', u'--outputNonMatchFilePath', type=str, default=u'./004nonMatchExtracted/nonMatchCounterDict.json',
+                    help=u'path to the file containing the non-matched elements in the train comments')
 parser.add_argument(u'-op', u'--outputPath', type=str, default=u'./004nonMatchExtracted/',
                     help=u'path to the folder containing for non-matched and matched elements in the train comments')
 args = parser.parse_args()
 
 
+alignedPath = args.alignedPath
 trainOrigPathOrList = args.originalAlignedPathOrList
 trainGoldPathOrList = args.goldAlignedPathOrList
+outputMatchFilePath = args.outputMatchFilePath
+outputNonMatchFilePath = args.outputNonMatchFilePath
 outputPath = args.outputPath
 
 
@@ -39,18 +48,20 @@ def getExactMatch(a, b):
 	return [ a[ind] for ind in range(len(a)) if a[ind] == b[ind] ]
 
 
-def extractNonExactMatch(trainOrigPathOrList, trainGoldPathOrList, outputPath=u'./004nonMatchExtracted/', resetMatchingDicts=True):
-	''' '''
+def extractNonExactMatch(trainOrigPathOrList, trainGoldPathOrList, 
+	outputMatchDictPath=u'./004nonMatchExtracted/matchCounterDict.json', 
+	outputNonMatchDictPath=u'./004nonMatchExtracted/nonMatchCounterDict.json', 
+	resetMatchingDicts=True):
+	''' extracts elements that don't match exaclty between original and gold '''
 	nonMatchedList = []
 	matchCounterDict, nonMatchCounterDict = {}, {}
 	#open the already made dicts if they exist
 	if resetMatchingDicts != True:
-		if u'matchCounterDict.json' in myUtils.getContentOfFolder(outputPath):
-			matchCounterDict = openJsonFileAsDict(u'{0}matchCounterDict.json'.format(outputPath))
-		if u'nonMatchCounterDict.json' in myUtils.getContentOfFolder(outputPath):
-			nonMatchCounterDict = openJsonFileAsDict(u'{0}nonMatchCounterDict.json'.format(outputPath))
+		matchCounterDict = openJsonFileAsDict(outputMatchDictPath)
+		nonMatchCounterDict = openJsonFileAsDict(outputNonMatchDictPath)
 	#open as a list
 	for index, trainPath in enumerate([trainOrigPathOrList, trainGoldPathOrList]):
+		#if we have a path
 		if type(trainPath) is str:
 			with open(trainPath) as alignedFile:
 				trainAlignedList = []
@@ -81,11 +92,16 @@ def extractNonExactMatch(trainOrigPathOrList, trainGoldPathOrList, outputPath=u'
 				nonMatchCounterDict[nonMatch[0]] = {}
 			nonMatchCounterDict[nonMatch[0]][nonMatch[1]] = nonMatchCounterDict[nonMatch[0]].get(nonMatch[1], 0) + 1
 	#dump the non matching data
-	myUtils.dumpRawLines(nonMatchedList, u'{0}nonMatched.tsv'.format(outputPath), addNewline=True, rewrite=True)
+	myUtils.dumpRawLines(nonMatchedList, outputNonMatchDictPath.replace(u'nonMatchCounterDict', u'nonMatched').replace(u'.json', u'.tsv'), addNewline=True, rewrite=True)
 	#dump the dicts
-	myUtils.dumpDictToJsonFile(matchCounterDict, u'{0}matchCounterDict.json'.format(outputPath), overwrite=True)
-	myUtils.dumpDictToJsonFile(nonMatchCounterDict, u'{0}nonMatchCounterDict.json'.format(outputPath), overwrite=True)
+	myUtils.dumpDictToJsonFile(matchCounterDict, outputMatchDictPath, overwrite=True)
+	myUtils.dumpDictToJsonFile(nonMatchCounterDict, outputNonMatchDictPath, overwrite=True)
 	return nonMatchedList 
 
 
-extractNonExactMatch(trainOrigPathOrList, trainGoldPathOrList, outputPath)
+
+#extractNonExactMatch(trainOrigPathOrList, trainGoldPathOrList, outputMatchFilePath, outputNonMatchFilePath)
+
+myUtils.emptyTheFolder(outputPath, fileExtensionOrListOfExtensions=u'tsv') #empty the non matched tsv files
+myUtils.applyFunctCrossVal(alignedPath, outputPath, [u'matchCounterDict', u'nonMatchCounterDict'], u'json', extractNonExactMatch, True)
+
