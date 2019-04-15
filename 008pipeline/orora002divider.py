@@ -12,7 +12,7 @@ parser.add_argument(u'-ocp', u'--originalCorpusPath', type=str, default=u'./001o
                     help=u'path to the folder there the corpus is')
 parser.add_argument(u'-rsl', u'--ratioSizeList', type=list, default=list([0.1, 0.3, 0.3, 0.3]),
                     help=u'list of the ratio size for the train and the test, default is [0.1, 0.3, 0.3, 0.3]')
-parser.add_argument(u'-nbs', u'--nbSegmentations', type=int, default=20,
+parser.add_argument(u'-nbs', u'--nbSegmentations', type=int, default=5,
                     help=u'number of segmentations the corpus must be segmented in order to do a cross-validation')
 parser.add_argument(u'-ttp', u'--trainAndTestPath', type=str, default=u'./002sets/',
                     help=u'path to the folder where the train set and test set files should be saved')
@@ -96,7 +96,7 @@ def makeSetsForCrossVal(origDf=u'./001ororazed/ororized.tsv', nbSegmentations=10
 	origDf = myUtils.getDataFrameFromArgs(origDf)
 	#if the nb of segmentation is a ratio (e.g., 0.25 for 25%), we transform it into an int nb of segmentations
 	if type(nbSegmentations) is float and str(nbSegmentations)[0] == '0':
-		nbSegmentations = int(1/nbSegmentations)
+		nbSegmentations = int(1.0/nbSegmentations)
 	#get the size of each segment
 	segmSize = float(len(origDf))/float(nbSegmentations)
 	#shuffle randomly the dataframe
@@ -118,4 +118,4 @@ def makeSetsForCrossVal(origDf=u'./001ororazed/ororized.tsv', nbSegmentations=10
 
 
 #makeTrainTestValidSetsFromTsv(origDf, ratioSizes, outputFolderPath)
-makeSetsForCrossVal(origDf, nbSegmentations, True, outputFolderPath)
+# makeSetsForCrossVal(origDf, nbSegmentations, True, outputFolderPath)

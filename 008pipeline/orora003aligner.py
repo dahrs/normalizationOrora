@@ -4,11 +4,12 @@
 import argparse
 import myUtils
 import pandas as pd
+from functools import partial
 
 
 parser = argparse.ArgumentParser()
 
-parser.add_argument(u'-sfp', u'--setFolderPath', type=str, default=u'./002sets/',
+parser.add_argument(u'-sfp', u'--setFolderPath', type=str, default=u'./002sets/', # u'./002sets/setForSlidesCrossVal/10percent/',
                     help=u'path to the file containing the original comments of the train')
 parser.add_argument(u'-otr', u'--originalTrainFilePath', type=str, default=u'./002sets/trainOrig.tsv',
                     help=u'path to the file containing the original comments of the train')
@@ -36,7 +37,7 @@ origAlignPath = args.origAlignPath
 goldAlignPath = args.goldAlignPath
 
 
-def makeAlignLists(pathToTrainOrigTsv, pathToTrainGoldTsv, origAlignPath=u'./003alignedTrainSet/alignedOrigLists.tsv', goldAlignPath=u'./003alignedTrainSet/alignedGoldLists.tsv', alignMostSimilar=False, dumpBoth=False):
+def makeAlignLists(pathToTrainOrigTsv, pathToTrainGoldTsv, origAlignPath=u'./003alignedTrainSet/alignedOrigLists.tsv', goldAlignPath=u'./003alignedTrainSet/alignedGoldLists.tsv', alignMostSimilar=False, dumpBoth=False, spacyModel=None):
 	'''	'''
 	trainOrigAlignedList = []
 	trainGoldAlignedList = []	
@@ -46,8 +47,10 @@ def makeAlignLists(pathToTrainOrigTsv, pathToTrainGoldTsv, origAlignPath=u'./003
 	#get the gold standard data to which compare the training data
 	for index, origComment in enumerate(trainOrigDf):
 		goldComment = trainGoldDf[index]
+		#choose the tokenizer
+		tokenizingFunct = partial(myUtils.multTokenizer, whatTokenizer=0, spacyModel=spacyModel)
 		#align the 2
-		alignedListOrig, alignedListGold = myUtils.align2SameLangStrings(origComment, goldComment, windowSize=3, alignMostSimilar=alignMostSimilar)
+		alignedListOrig, alignedListGold = myUtils.align2SameLangStrings(origComment, goldComment, windowSize=3, alignMostSimilar=alignMostSimilar, tokenizingFunct=tokenizingFunct)
 		#add to the lists of aligned elements
 		trainOrigAlignedList.append(alignedListOrig)
 		trainGoldAlignedList.append(alignedListGold)
@@ -95,8 +98,11 @@ def makeAlignLists(pathToTrainOrigTsv, pathToTrainGoldTsv, origAlignPath=u'./003
 
 
 
+# spacyModel = myUtils.spacyLoadModel(lang='en') 
+spacyModel = None
+
 #makeAlignLists(pathToTrainOrigTsv, pathToTrainGoldTsv, origAlignPath, goldAlignPath, alignMostSimilar)
 
 myUtils.emptyTheFolder(u'{0}/grepable/'.format(alignFolderPath), fileExtensionOrListOfExtensions=u'tsv') #delete old files
-myUtils.applyFunctCrossVal(setFolderPath, alignFolderPath, [u'alignOrigLists', u'alignGSLists'], u'tsv', makeAlignLists, alignMostSimilar, False)
+myUtils.applyFunctCrossVal(setFolderPath, alignFolderPath, [u'alignOrigLists', u'alignGSLists'], u'tsv', makeAlignLists, alignMostSimilar, False, spacyModel)
 

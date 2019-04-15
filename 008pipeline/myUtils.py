@@ -2,12 +2,13 @@
 #-*- coding:utf-8 -*- 
 
 
-import os, codecs, sys, re, functools
+import os, codecs, sys, re, functools, spacy
 import pandas as pd
 import multiprocessing as mp
 from contextlib import closing
 from nltk.metrics import distance
 from nltk.corpus import stopwords	
+from nltk.tokenize import word_tokenize
 from functools import partial
 
 
@@ -108,6 +109,80 @@ def openJsonFileAsDict(pathToFile):
 	import json
 	with codecs.open(pathToFile, u'r', encoding=u'utf8') as openedFile:
 		return json.load(openedFile)
+
+
+def emptyTheFolder(directoryPath, fileExtensionOrListOfExtensions=u'*'):
+	'''
+	Removes all files corresponding to the specified file(s) extension(s).
+	If the fil estension is '*' the function will remove all files except
+	the system files (ie: '.p', '.java', '.txt') and folders
+	'''
+	#we first delete the content of the folder to make place to the new content
+	try:
+		if type(fileExtensionOrListOfExtensions) is list:
+			filelist = []
+			for extension in fileExtensionOrListOfExtensions:
+				fileExtensionList = [file for file in os.listdir(directoryPath) if file.endswith(".%s" %(fileExtensionOrListOfExtensions)) ]
+				filelist = filelist + fileExtensionList
+		#the '*' implies we want all files deleted
+		elif fileExtensionOrListOfExtensions == u'*':
+			filelist = [file for file in os.listdir(directoryPath)]
+		else:
+			#get rid of the dot if there is one
+			fileExtensionOrListOfExtensions = fileExtensionOrListOfExtensions[1:] if fileExtensionOrListOfExtensions[0] == u'.' else fileExtensionOrListOfExtensions
+			#make list of files finishong with  '.[format]'
+			filelist = [file for file in os.listdir(directoryPath) if file.endswith(u".%s" %(fileExtensionOrListOfExtensions)) ]
+		#we delete the files
+		for file in filelist:
+			os.remove(directoryPath + file)
+	except OSError:
+		pass
+
+
+def deleteFile(filePath):
+	''''''
+	os.remove(filePath)
+
+
+def dumpDataFrame(df, dfPath, header=True):
+	'''  '''
+	df.to_csv(dfPath, sep='\t', index=False, header=header)
+
+
+def theFileExists(directoryOrWholeFilePath, nameOfFile=None, fileExtension=None):
+	'''
+	Returns false if the file does not exists at the directory
+	and returns true if the file exists
+	'''
+	#if the directory path is actually the file path
+	if nameOfFile == None and fileExtension == None:
+		return os.path.isfile(directoryOrWholeFilePath)
+	#if the path is correctly written at the end
+	if directoryOrWholeFilePath[-1] !=u'/':
+		directoryOrWholeFilePath = u'%s/' %(directoryOrWholeFilePath)
+	#all extensions
+	if fileExtension == None:
+		filelist = os.listdir(directoryOrWholeFilePath)
+		for file in filelist:
+			splittedFileName = file.split('.')
+			#if there was more than one '.'
+			if len(splittedFileName) > 2:
+				splittedFileName = ['.'.join(splittedFileName[:len(splittedFileName)-1])]
+			#if the file exists
+			for nb in range(100):
+				#for python 2
+				try:
+					strNb = unicode(nb)
+				#for python 3
+				except NameError:
+					strNb = str(nb)
+				if u'%s_%s' %(nameOfFile, strNb) == splittedFileName[0] or u'%s_%s' %(noTroublesomeName(nameOfFile), strNb) == splittedFileName[0]:
+					return True
+		#if the file never appeared
+		return False
+	#exclusive extension
+	else:
+		return os.path.isfile(u'%s%s.%s' %(directoryOrWholeFilePath, nameOfFile, fileExtension))
 
 
 ######################################################################
@@ -212,6 +287,74 @@ def removeStopwords(tokenList, language=u'english'):
 	return list(filter(lambda tok: tok not in to_remove, tokenList))
 
 
+def fillCorrespondenceList(string1, string2, ngramSize=2):
+	''''''
+	correspondenceList = []
+	for indexChar, char in enumerate( string1[:len(string1)-(ngramSize-1)] ):
+		# if the string2 has not yet got to the end of the string
+		if len(string2)-(ngramSize-1) > indexChar:
+			# get each ngram in the string1 and string2
+			ngramString1 = char if ngramSize == 1 else string1[indexChar:indexChar+ngramSize]
+			ngramString2 = string2[indexChar] if ngramSize == 1 else string2[indexChar:indexChar+ngramSize]
+			# if there is a correspondence
+			if ngramString1 == ngramString2:
+				correspondenceList.append(1)
+			else:
+				correspondenceList.append(0)
+		# if there is no possible correspondence because the string2 has no more ngrams
+		else:
+			correspondenceList.append(None)
+	return correspondenceList
+
+
+def isStringTruncated(string1, string2, caseSensitive=True):
+	''' detects if the string2 is a truncated version of the string1 and returns a boolean decision indicating 
+	if it is (True) or not (False) truncated as well as a normalized score indicating the degree of truncation (the higher the 
+	score the more truncated the string2 is, compared to the string1) '''
+	if caseSensitive != True:
+		string1, string2 = string1.lower(), string2.lower()
+	# the string1 must be the full version and the string 2 the "supposedly" truncated one, not the other way around
+	if len(string1) < len(string2):
+		return False, 0.0
+	# special case for the very small words of lenght 2 or 3
+	elif len(string1) in [2,3]:
+		correspondenceList = fillCorrespondenceList(string1, string2, ngramSize=1)
+	# normal cases
+	else:
+		correspondenceList = fillCorrespondenceList(string1, string2, ngramSize=2)
+	# case where there is no correspondence at all, which means the strings are not in a
+	# truncation situation, they are just completely different strings from the start
+	if 1 not in correspondenceList:
+		return False, 0.0
+	# case where everything corresponds, which means the strings are not truncated
+	elif None not in correspondenceList:
+		return False, 0.0
+	# case where there is a non-correspondence instead of an truncation 
+	# (there is an element there, but it doesn't correspond)
+	elif 0 in correspondenceList:
+		return False, 0.0
+	# analysis of the correspondence list
+	for indexCorresp, correspScore in enumerate(correspondenceList):
+		if correspScore == None:
+			# if there was a non-correspondence in the middle of the word but there is a 
+			# correspondence further ahead, then it's not a truncation is a correction
+			if 1 in correspondenceList[indexCorresp:]:
+				return False, 0.0
+	#analysis of the degree of truncation
+	trueCorrespondence = [ score for score in correspondenceList if score == 1]
+	return True, float(len(trueCorrespondence))/float(len(correspondenceList))
+
+
+def getHtmlElement(string):
+	''''''
+	htmlElementsRegex = re.compile(r'(<[a-zA-Z0-9]+>|</[a-zA-Z0-9]+>|</>)+', re.UNICODE)
+	return re.findall(htmlElementsRegex, string)
+
+
+######################################################################
+# TOKENIZATION
+######################################################################
+
 def getTokenRegex(capturePunctuation=False, captureSymbols=False, language='english'):
 	''''''
 	prefix, suffix, punctuation, symbols = r"", r"", r"", r""
@@ -223,19 +366,22 @@ def getTokenRegex(capturePunctuation=False, captureSymbols=False, language='engl
 		punctList = [punct for punct in capturePunctuation]
 		punctuation = r'[{0}]+|'.format( r''.join(punctList) ) if len(punctList) > 0 else r''
 	#adds the apostrophe at the start of the word in english and at the end of the word in other languages
-	if captureSymbols == True or u"'" in captureSymbols:
+	if captureSymbols == True:
 		prefix, suffix = (r"(\b|')", r"\b") if language == 'english' else (r"\b", r"('|\b)")
 	#list the symbols
 	if captureSymbols == True:
 		symbols = r'|-|\+|\#|\$|%|&|\'|\*|\^|_|`|\||~|:|@|<|>'
 	elif captureSymbols != False:
+		#adds the apostrophe at the start of the word in english and at the end of the word in other languages
+		if u"'" in captureSymbols:
+			prefix, suffix = (r"(\b|')", r"\b") if language == 'english' else (r"\b", r"('|\b)")
 		#put all the symbols in a list then transform it into a string
 		symbList = [symb for symb in captureSymbols if symb != u"'"]
 		symbols = r'{0}'.format( r''.join(symbList) ) if len(symbList) > 0 else r''
 	return r"({0}{1}[\w{2}]+{3})".format(prefix, punctuation, symbols, suffix) 
 
 
-def naiveRegexTokenizer(string, caseSensitive=True, eliminateStopwords=False, language=u'english', capturePunctuation=False, captureSymbols=False):
+def naiveRegexTokenizer(string, caseSensitive=True, eliminateStopwords=False, language=u'english', capturePunctuation=True, captureSymbols=False):
 	'''
 	returns the token list using a very naive regex tokenizer
 	does not return the punctuation symbols nor the newline
@@ -254,6 +400,40 @@ def naiveRegexTokenizer(string, caseSensitive=True, eliminateStopwords=False, la
 	if eliminateStopwords != False:
 		tokens = removeStopwords(tokens, language=language)
 	return tokens
+
+
+def nltkTokenizer(string):
+	return word_tokenize(string)
+
+
+def spacyLoadModel(lang='en'):
+	''' load the spacy model outside the tokenizing function, that way the
+	model is charged once while the tokenizer can be launched multiple times '''
+	if lang in [u'en', u'fr']:
+		typeCore = u'web' if lang == u'en' else u'news'
+	return spacy.load(u'{0}_core_{1}_sm'.format(lang, typeCore), disable=['parser', 'tagger', 'ner'])
+
+
+def spacyTokenizer(string, spacyModel):
+	return list([ tok.text for tok in spacyModel(string) ])
+
+
+def words(string): return re.findall(r'\w+', string.replace(u'\n', u' ')) #extracted from peter norvig spell post : https://norvig.com/spell-correct.html
+
+
+def multTokenizer(string, whatTokenizer=0, spacyModel=None):
+	if whatTokenizer == 0:
+		return string.split(u' ')
+	elif whatTokenizer == 1:
+		return words(string)
+	elif whatTokenizer == 2:
+		return naiveRegexTokenizer(string)
+	elif whatTokenizer == 3:
+		return nltkTokenizer(string)
+	elif whatTokenizer == 4:
+		if spacyModel == None:
+			spacyModel = spacyLoadModel()
+		return spacyTokenizer(string, spacyModel)
 
 
 ######################################################################
@@ -827,8 +1007,108 @@ def cleanTruncatedComments(pathOriginalCorpus, cleanedOutputPath=None, ororaze=T
 	return originalAndGoldDf
 
 
+######################################################################
+# CROSS VALIDATION
+######################################################################
+
+def unifyListOfTestSetsIntoOne(listOfTestFiles, outputUnifiedFilePath=None):
+	''' given a list of paths to files, unites them into a single one '''
+	dataframes = []
+	#open the dataframes and append them to the list
+	dataframes = [ getDataFrameFromArgs(dfPath, header=False) for dfPath in listOfTestFiles ]
+	#concatenate them
+	unifiedDf = pd.concat(dataframes, ignore_index=True, sort=False)
+	#dump the result
+	if outputUnifiedFilePath != None:
+		dumpDataFrame(unifiedDf, outputUnifiedFilePath, header=False)
+	#return the unified dataframe
+	return unifiedDf
+
+
+def getNbPattern(nb):
+	return re.compile(r'[a-zA-Z]{0}[a-zA-Z\.]'.format(nb))
+
+
+def applyFunctCrossVal(inputFolderPath, outputFolderPath, outputFileNamesList, outputFormat, funct, *argv):
+	'''  '''
+	#make sure the output file name list is a not only one string name
+	if type(outputFileNamesList) is str:
+		outputFileNamesList = [outputFileNamesList]
+	#make sure the folder paths end in /
+	inputFolderPath = u'{0}/'.format(inputFolderPath) if inputFolderPath[-1] != u'/' else inputFolderPath
+	outputFolderPath = u'{0}/'.format(outputFolderPath) if outputFolderPath[-1] != u'/' else outputFolderPath
+	#get content of input folder (sets)
+	listSetFiles = getContentOfFolder(inputFolderPath)
+	#eliminate all previous outputs from the align folder
+	emptyTheFolder(outputFolderPath, outputFormat)
+	for nb in range(len(listSetFiles)):
+		nbPattern = getNbPattern(nb)
+		#each cross validation file must have a number, find the files containing said number
+		pairedFiles = [ file for file in listSetFiles if nbPattern.search(file)]
+		if len(pairedFiles) != 0:
+			#get the right paths to the input files
+			pathToFile1 = u'{0}{1}'.format(inputFolderPath, pairedFiles[0]) if u'Orig' in pairedFiles[0] else u'{0}{1}'.format(inputFolderPath, pairedFiles[1])
+			pathToFile2 = u'{0}{1}'.format(inputFolderPath, pairedFiles[0]) if u'GS' in pairedFiles[0] else u'{0}{1}'.format(inputFolderPath, pairedFiles[1])
+			#if the function requires 2 output files path
+			if len(outputFileNamesList) == 2:
+				origPath = u'{0}{1}{2}.{3}'.format(outputFolderPath, outputFileNamesList[0], nb, outputFormat)
+				goldPath = u'{0}{1}{2}.{3}'.format(outputFolderPath, outputFileNamesList[1], nb, outputFormat)
+				#launch function and dump
+				funct(pathToFile1, pathToFile2, origPath, goldPath, *argv)
+			#if the function requires 1 output file path
+			elif len(outputFileNamesList) == 1:
+				outputFilePath = u'{0}{1}{2}.{3}'.format(outputFolderPath, outputFileNamesList[0], nb, outputFormat)
+				#launch function and dump
+				funct(pathToFile1, pathToFile2, outputFilePath, *argv)
+			#if the function requires the output folder path
+			elif len(outputFileNamesList) == 0:
+				#launch function and dump
+				funct(pathToFile1, pathToFile2, outputFolderPath, *argv)
+	return None
+
+
+######################################################################
+# MAKE DATA INTO GREP-ABLE DATA
+######################################################################
+
+
+def fromJsonToGrepable(pathToJson, pathToOutPutFolder):
+	'''  '''
+	#verification 
+	pathToOutPutFolder = u'{0}/'.format(pathToOutPutFolder) if pathToOutPutFolder[-1] != u'/' else pathToOutPutFolder
+	#data 
+	jsonDict = openJsonFileAsDict(pathToJson)
+	keyList = []
+	acceptionList = []
+	scoreList = []
+	allList = []
+	#look up each key, divie the value into the replacement word and the score
+	for key, listOfValues in jsonDict.items():
+		for acception in listOfValues:
+			keyList.append(key)
+			acceptionList.append(acception[0])
+			scoreList.append(acception[1])
+			allList.append(u'{0}\t{1}\t{2}'.format(key, acception[0], acception[1]))
+	#dumpt into files
+	fileName = pathToJson.split(u'/')[-1].replace(u'.json', u'')
+	dumpRawLines(keyList, u'{0}{1}Orig.tsv'.format(pathToOutPutFolder, fileName))
+	dumpRawLines(acceptionList, u'{0}{1}Accep.tsv'.format(pathToOutPutFolder, fileName))
+	dumpRawLines(scoreList, u'{0}{1}Score.tsv'.format(pathToOutPutFolder, fileName))
+	dumpRawLines(allList, u'{0}excelRead/{1}.tsv'.format(pathToOutPutFolder, fileName))
+	return
+
+
+def applyFromJsonToGrep(pathToJsonFolder, pathToOutPutFolder):
+	''' '''
+	listOfTsv = [ u'{0}{1}'.format(pathToJsonFolder, filePath) for filePath in getContentOfFolder(pathToJsonFolder) if u'.json' in filePath]
+	for filePath in listOfTsv:
+		fromJsonToGrepable(filePath, pathToOutPutFolder)
 
 
 #cleanCorpusFromEncodingErrors(u'./000corpus/inputOutputGs.tsv', cleanedOutputPath=u'./000corpus/inputOutputGsCleaned.tsv')
 #cleanTruncatedComments(u'./000corpus/inputOutputGsCleaned.tsv', u'./000corpus/inputOutputGsCleanedTrunc.tsv')
 #cleanCorpusToDifferentFromGsOnly(u'./000corpus/inputOutputGsCleanedTrunc.tsv', u'./000corpus/nonExactMatchCleaned.tsv', ororaze=False, advanced=False)
+
+
+# transform the json dicts into grep-able tsv files
+# applyFromJsonToGrep('./005learnedDict/', u'./005learnedDict/grepableDicts/40percent')

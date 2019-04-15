@@ -11,7 +11,7 @@ parser = argparse.ArgumentParser()
 
 parser.add_argument(u'-top', u'--testOriginalPath', type=str, default=u'./002sets/testOrig.tsv',
                     help=u'path to the file containing the original comments of the test')
-parser.add_argument(u'-ip', u'--inputPath', type=str, default=u'./002sets/',
+parser.add_argument(u'-ip', u'--inputPath', type=str, default=u'./002sets/', # u'./002sets/setForSlidesCrossVal/10percent/',
                     help=u'path to the folder containing the comments of the test')
 parser.add_argument(u'-tfp', u'--transformedFilePath', type=str, default=u'./006transformed/transformedTest.tsv',
                     help=u'path to the file where we will dump the transformed comments of the test')
@@ -24,15 +24,15 @@ parser.add_argument(u'-dp', u'--pathToDicts', type=str, default=u'./005learnedDi
 args = parser.parse_args()
 
 
-
 testOrigFilePath = args.testOriginalPath
 normOutFilePath = args.transformedFilePath
-normalization = args.normalizationFunctionOrDict
+normalization = args.normalizationFunctionOrDict #u'./005learnedDict/humanMadeDict/humanMadeOroraAbbreviationDict.json'
 inputPath = args.inputPath
 dictPath = args.pathToDicts
 outputPath = args.transformedPath
 
-def ororaZeAbbreviations(string, abbrDict=None, listTheVariations=False):
+
+def ororaZeAbbreviations(string, abbrDict=None, listTheVariations=False, spacyModel=None):
 	''' 
 	ABBR --> ABBREVIATION
 	'''
@@ -42,44 +42,45 @@ def ororaZeAbbreviations(string, abbrDict=None, listTheVariations=False):
 			for char in replaceTuple[1]:
 				token = token.replace(char, replaceTuple[0])
 				token = token.replace(char.lower(), replaceTuple[0].lower())
-		return token
+		return token.upper()
 	#open the abbreviation dict
 	if abbrDict == None:
 		abbrDict = myUtils.openJsonFileAsDict(u'./005learnedDict/ororaAbbreviationDict.json')
 	#open the abbr dict file if it's a path
 	elif type(abbrDict) is str:
 		abbrDict = myUtils.openJsonFileAsDict(abbrDict)
+	#tokenizing
+	stringList = myUtils.multTokenizer(string, whatTokenizer=0, spacyModel=spacyModel)
 	#abbreviation replacement
-	stringList = string.split(u' ')	
 	if type(abbrDict[list(abbrDict.keys())[0]]) is list:
-		for index, token in enumerate(stringList):
+		for index, token in enumerate(stringList):			
 			#if the token is in the dict
-			if makeReplacements(token).upper() in abbrDict:
+			if makeReplacements(token) in abbrDict:
 				minScore = 0.55
 				#if we search only for the first and most common option
 				if listTheVariations == False:
 					#if the token has a reliable score
-					###if abbrDict[makeReplacements(token).upper()][0][1] >= minScore:
-					###	stringList[index] = abbrDict[makeReplacements(token).upper()][0][0]
+					if abbrDict[makeReplacements(token)][0][1] >= minScore:
+					 	stringList[index] = abbrDict[makeReplacements(token)][0][0]
 					#use only the tokens having only one way of transcribing
-					if len(abbrDict[makeReplacements(token).upper()]) == 1:
-						stringList[index] = abbrDict[makeReplacements(token).upper()][0][0]
+					#if len(abbrDict[makeReplacements(token)]) == 1:
+					#	stringList[index] = abbrDict[makeReplacements(token)][0][0]
 					else:
-						stringList[index] = makeReplacements(token).upper()
+						stringList[index] = makeReplacements(token)
 				#if we want to return a list of all the possibilities in decreasing order
 				else:
-					variations = [ var[0] for var in abbrDict[makeReplacements(token).upper()] if var[1] >= minScore ]
-					stringList[index] = u'¤'.join(variations) if len(variations) != 0 else makeReplacements(token).upper()
-		#stringList = [ token if makeReplacements(token).upper() not in abbrDict else abbrDict[makeReplacements(token).upper()][0][0] for token in stringList ]
+					variations = [ var[0] for var in abbrDict[makeReplacements(token)] if var[1] >= minScore ]
+					stringList[index] = u'¤'.join(variations) if len(variations) != 0 else makeReplacements(token)
+		#stringList = [ token if makeReplacements(token) not in abbrDict else abbrDict[makeReplacements(token)][0][0] for token in stringList ]
 	else:
-		stringList = [ token if makeReplacements(token).upper() not in abbrDict else abbrDict[makeReplacements(token).upper()] for token in stringList ]
+		stringList = [ token if makeReplacements(token) not in abbrDict else abbrDict[makeReplacements(token).upper()] for token in stringList ]
 	#elimination of the empty elements u'' or u'∅' if they got in (somehow)
 	#stringList = [ token for token in stringList if token not in [u'', u'∅'] ]
 	string = u' '.join(stringList)
 	return string
 
 
-def applyNormalisation(testOrigPath, normOutPath=None, normalization=None, *args):
+def applyNormalisation(testOrigPath, normOutPath=None, spacyModel=None, normalization=None, *args):
 	''' apply the normalization dict'''
 	#if we are given a path to the place where the dict is
 	if type(normalization) is str:
@@ -133,7 +134,9 @@ def applyLearnedDictPlusHumanDict(testOrigPath,
 
 
 def applyNormalizationCrossVal(inputFolderPath, outputFolderPath, outputFileName, outputFormat, dictFolderPath):
-	'''  '''
+	''' applies the normalization dict over cross-validation data '''	
+	# spacyModel = myUtils.spacyLoadModel(lang='en')
+	spacyModel = None
 	#make sure the folder paths end in /
 	inputFolderPath = u'{0}/'.format(inputFolderPath) if inputFolderPath[-1] != u'/' else inputFolderPath
 	outputFolderPath = u'{0}/'.format(outputFolderPath) if outputFolderPath[-1] != u'/' else outputFolderPath
@@ -158,7 +161,7 @@ def applyNormalizationCrossVal(inputFolderPath, outputFolderPath, outputFileName
 				#get the right dict file paths
 				dictFilePath = u'{0}ororaAbbreviationDict{1}.json'.format(dictFolderPath, nb)
 				#launch function and dump
-				applyNormalisation(u'./006transformed/temp.tsv', outputFilePath, u'./005learnedDict/humanMadeDict/humanMadeOroraAbbreviationDict.json')
+				applyNormalisation(u'./006transformed/temp.tsv', outputFilePath, spacyModel, dictFilePath) #u'./005learnedDict/humanMadeDict/humanMadeOroraAbbreviationDict.json' )
 	myUtils.deleteFile(u'./006transformed/temp.tsv')
 	return None
 
@@ -173,3 +176,6 @@ def applyNormalizationCrossVal(inputFolderPath, outputFolderPath, outputFileName
 
 #auto dict cross val
 applyNormalizationCrossVal(inputPath, outputPath, u'transformedTest', u'tsv', dictPath)
+
+#apply it too using the human-auto intersection dict
+applyNormalizationCrossVal(inputPath, u'./006transformed/humAutoIntersect/', u'transformedTest', u'tsv', u'./005learnedDict/intersectionHumanAutoDict/')

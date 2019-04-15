@@ -35,6 +35,36 @@ inputPath = args.inputPath
 outputPath = args.outputPath
 
 
+def undesireableKey(keyString):
+	''' analyzes the key and value string and if it detects an undesireable property it returns true '''
+	# encoding problems
+	# with web-like elements
+	if len(myUtils.getHtmlElement(keyString)) != 0:
+		return True
+	# if there is a punctuation symbol
+	for symbol in [u'-', u'_', u'^', u'@', u'[', u']', u'(', u')', u'?', u'!', u'.', u'*', u'/', u'<', u'>', u'&', u'$', u'~', u'"', u"'", u':', u';', u'¤']:
+		if symbol in keyString:
+			return True
+	return False
+
+
+def undesireableVal(keyString, valString):
+	''' analyzes the key and value string and if it detects an undesireable property it returns true '''
+	# encoding problems
+	if u'�' in valString:
+		return True
+	# truncated value
+	elif myUtils.isStringTruncated(keyString, valString, caseSensitive=True)[0] == True:
+		return True
+	elif len(myUtils.getHtmlElement(valString)) != 0:
+		return True
+	# if there is a punctuation symbol
+	for symbol in [u'-', u'_', u'^', u'@', u'[', u']', u'(', u')', u'?', u'!', u'.', u'*', u'/', u'<', u'>', u'&', u'$', u'~', u'"', u"'", u':', u';', u'¤']:
+		if symbol in valString:
+			return True
+	return False
+
+
 def makeDictFromTsvTrain(pathNonMatchList, existingDict={}, pathMatch=None, pathNonMatch=None, language=u'fr', outputDictFilePath=False):
 	'''	'''
 	#open the trained dict
@@ -68,7 +98,7 @@ def makeDictFromTsvTrain(pathNonMatchList, existingDict={}, pathMatch=None, path
 				nbNonMatch = 0
 				for indexGold, goldVal in enumerate(goldValList):
 					nbNonMatch = nonMatchCounterDict[origKey][goldVal]
-					###trainedDict[origKey] = goldValList #don't remove anything, no matter how uncommon ¦
+					###trainedDict[origKey] = goldValList #don't remove anything, no matter how uncommon
 					#remove the gold value if it's not a very common unmatching replacement
 					if float(nbMatch)/float(nbMatch+nbNonMatch) >= 0.55:
 						del goldValList[indexGold]
@@ -84,8 +114,32 @@ def makeDictFromTsvTrain(pathNonMatchList, existingDict={}, pathMatch=None, path
 							del trainedDict[origKey]
 			except KeyError:
 				pass
-	#clean the dict
+	#second cleaning, get rid of the empty element
 	if u'' in trainedDict: del trainedDict[u'']
+	#third cleaning, eliminate the elements whose value is way smaller than its key and
+	#of the entries whose key have empirically shown to induce errors and delete them
+	for origKey, goldValList in dict(trainedDict).items():
+		# if the key is undesireable
+		if undesireableKey(origKey) == True:
+			del trainedDict[origKey]
+		else:
+			indexesToDel = []
+			for indexVal, goldVal in enumerate(list(goldValList)):
+				# if the val is much smaller than the key
+				if float(len(goldVal))/float(len(origKey)) <= 0.4:
+					indexesToDel.append(indexVal)
+				# if the val is undesireable
+				elif undesireableVal(origKey, goldVal) == True:
+					indexesToDel.append(indexVal)
+			#we delete the indexes we detected as causing problems
+			for indexVal in reversed(indexesToDel):
+				del goldValList[indexVal]
+			#if we have not produced an empty list, assign it to the trained dict		
+			if len(goldValList) == 0:
+				del trainedDict[origKey]
+			else:
+				trainedDict[origKey] = goldValList
+	#fourth cleaning, ruled based cleaning
 	for origKey, goldValList in dict(trainedDict).items():
 		#eliminate all the elements in the dict that have an empty symbol as a value
 		if set(goldValList) == {u'∅'} or origKey == u'∅':
@@ -115,16 +169,46 @@ def makeDictFromTsvTrain(pathNonMatchList, existingDict={}, pathMatch=None, path
 			#sort the list and add to the dict
 			if len(goldValSortedList) != 0:
 				goldValSortedList.sort(reverse=True, key=lambda x: x[1])
-				trainedDict[origKey] = goldValSortedList 
+				trainedDict[origKey] = goldValSortedList		
 	#dump the dict
 	if outputDictFilePath != False:
 		myUtils.dumpDictToJsonFile(trainedDict, outputDictFilePath, overwrite=True)
 	return trainedDict
 
 
+def dumpDictIntersectAutoAndHuman(autoDict, humanDict=None, outputPath=None):
+	''' given 2 dicts makes the intersection of the 2 (keys in common in both of them), then returns and dumps it '''
+	newDict = {}
+	nonIntersectAutoDict = {}
+	#get the dicts if they are not given directly as dicts
+	if humanDict == None:
+		humanDict = myUtils.openJsonFileAsDict(u'./005learnedDict/humanMadeDict/humanMadeOroraAbbreviationDict.json')
+	elif type(humanDict) is str:
+		humanDict = myUtils.openJsonFileAsDict(humanDict)
+	if type(autoDict) is str:
+		autoDict = myUtils.openJsonFileAsDict(autoDict)
+	# get the intersection of keys in both dicts
+	intersection = set(autoDict.keys()) & set(humanDict.keys())
+	for key in intersection:
+		newDict[key] = autoDict[key]
+	# get the auto keys not appearing in the intersection
+	for key, val in autoDict.items():
+		if key not in intersection:
+			nonIntersectAutoDict[key] = val
+	#dump it
+	if outputPath == None:
+		outputPath = u'./005learnedDict/intersectionHumanAutoDict/humanAutoDict.json'
+	myUtils.dumpDictToJsonFile(newDict, pathOutputFile=outputPath, overwrite=True)
+	myUtils.dumpDictToJsonFile(nonIntersectAutoDict, pathOutputFile=outputPath.replace(u'HumanAutoDict/', u'HumanAutoDict/nonIntersect/').replace(u'.json', u'NonIntersect.json'), overwrite=True)
+	return newDict, nonIntersectAutoDict
+
+
 def makeDictCrossVal(inputFolderPath, outputFolderPath, startDict):
 	'''  '''
 	lenFinalDicts = []
+	ratioIntersectDicts = []
+	myUtils.emptyTheFolder(u'./005learnedDict/intersectionHumanAutoDict/', fileExtensionOrListOfExtensions=u'json')
+	myUtils.emptyTheFolder(u'./005learnedDict/intersectionHumanAutoDict/nonIntersect/', fileExtensionOrListOfExtensions=u'json')
 	#make sure the folder paths end in /
 	inputFolderPath = u'{0}/'.format(inputFolderPath) if inputFolderPath[-1] != u'/' else inputFolderPath
 	outputFolderPath = u'{0}/'.format(outputFolderPath) if outputFolderPath[-1] != u'/' else outputFolderPath
@@ -146,7 +230,13 @@ def makeDictCrossVal(inputFolderPath, outputFolderPath, startDict):
 			#launch function and dump
 			finalDict = makeDictFromTsvTrain(pathToFile0, startDict, pathToFile1, pathToFile2, u'fr', outputDictFilePath)
 			lenFinalDicts.append(len(finalDict))
-	print('mean size of dict nb : ', sum(lenFinalDicts)/len(lenFinalDicts))		
+			#get and dumpt intersection of human and auto dicts
+			intersectDict, nonIntersectAutoDict = dumpDictIntersectAutoAndHuman(finalDict, 
+				humanDict=None, 
+				outputPath=u'./005learnedDict/intersectionHumanAutoDict/ororaAbbreviationDict{0}.json'.format(nb))
+			ratioIntersectDicts.append(float(len(intersectDict))/float(len(finalDict)))
+	print('mean size of dict nb : ', sum(lenFinalDicts)/len(lenFinalDicts))
+	print('in average, {0} percent of the auto dict also appears in the human'.format(sum(ratioIntersectDicts)/float(len(ratioIntersectDicts))))	
 	return None
 
 
